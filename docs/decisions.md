@@ -89,6 +89,8 @@
 |---|---|---|
 | Installers | Built only in GitHub Actions (`package` job, one runner per OS) with electron-builder: NSIS `.exe`, `.dmg` for arm64 and x64, `.AppImage`. Each packaged app is launched in a smoke test before its installer is uploaded as a workflow artifact. | Your rule: builds and executables come from Actions, not local machines. |
 | Signing | Unsigned. Windows SmartScreen and macOS Gatekeeper warn on first launch. | Add certificates as repository secrets when you want signed builds; a tagged-release workflow can then publish installers to GitHub Releases. |
+| Releases | Every push to `main` is a release: `.github/scripts/version.mjs` takes MAJOR.MINOR from `apps/desktop/package.json` and bumps PATCH past the highest `vMAJOR.MINOR.*` tag. The installers are attached to a draft release, which is published (creating the tag) only when all three OS builds passed. Re-running a released commit reuses its tag. Other builds are `<next>-dev.<run>`. | The tag is the source of truth, so CI never commits back to `main`. |
+| Artifacts | Installers are uploaded unzipped (`archive: false`, one file per upload). The `dist` build-output artifact stays zipped because it is many files. | |
 | Packaged contents | Only `out/` (bundled by electron-vite) and `package.json`; no `node_modules`. | Main and preload need only Electron and Node built-ins; the renderer is fully bundled. |
 
 ## Phase 2, step 1: editor lock
