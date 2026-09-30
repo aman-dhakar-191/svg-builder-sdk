@@ -172,3 +172,17 @@
 | Canvas | Double-click a path (or Enter / Edit > Edit Path Nodes) shows nodes (squares) and control points (circles, dashed handle lines). A drag previews in the DOM and commits one `pathEdit` on release; Alt moves a point without its handles; snapping applies. Esc leaves; Delete does nothing in this mode. Edit > Convert to Path (Ctrl+Shift+C) converts the selection in one undo step and enters node editing for a single shape. | Same one-gesture-one-command rule as other canvas gestures. |
 | Not yet | Adding/deleting nodes, changing segment types, booleans, simplify, headless bbox for paths (still needs the measure bridge). | |
 | AI | Tools `convert_to_path`, `edit_path`; `get_element` includes a path's `segments`. | Parity with the UI. |
+
+## Phase 2, step 4b: booleans and simplify (paper.js)
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Library | `paper` 0.12.18 (MIT), its `paper-core` build, in `packages/model`. Only its geometry is used (no view, no canvas); it runs headlessly in Node, verified. Adds ~0.4 MB to the renderer bundle. | User's choice; the plan says not to hand-roll bezier booleans. |
+| `boolean` | union, subtract, intersect, exclude of sibling paths or basic shapes (any transforms), in stacking order: subtract = bottom minus the others (Inkscape "Difference", Illustrator "Minus Front"). Result: a new `<path>` in the bottom shape's coordinates, with its attributes (style, transform) and place; operands removed. One undo step. `EMPTY_RESULT` when nothing is left; groups and text are refused (`NOT_CONVERTIBLE`). | Coordinates of the bottom shape keep its transform and stroke width as they were. |
+| `simplify` | Refits each subpath with fewer points; `tolerance` = largest deviation in the path's units (default 1). Returns node counts before and after. | |
+| Output | Absolute path data, 3 decimals (paper's own output is normalized through `parsePath`/`formatPath`). | Readable files. |
+| Emptiness | Judged by the result's path data, not its area: paper's area is signed and exclude's pieces can cancel to ~0. | Found while testing. |
+| UI | New **Path** menu: Convert to Path, Edit Path Nodes, Union, Subtract, Intersect, Exclude, Simplify (Ctrl+L). Booleans have no shortcuts: Ctrl +/- are zoom. | |
+| AI | Tools `combine_shapes`, `simplify_path`; the prompt suggests building outlines from simple shapes (a crescent = circle minus circle). | The logo test showed the AI faking shapes by stacking circles. |
+| Main process | Imports `@svg-editor/ai-tools/definitions` (tool schemas, prompt, validator; no SDK). Importing the full package pulled paper.js and its Node shims (canvas, jsdom) into the main bundle and crashed the app at startup. An e2e test checks the main bundle needs only Electron and Node built-ins; `ui-parity.test.ts` checks the import. | |
+| Deferred | Node add/delete and segment types: to the final polish (plan, Step 5). | User's call. |

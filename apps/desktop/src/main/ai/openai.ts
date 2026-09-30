@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT, toolsFor } from "@svg-editor/ai-tools";
+import { SYSTEM_PROMPT, toolsFor } from "@svg-editor/ai-tools/definitions";
 import type { AiSettings } from "../../shared/ai.js";
 import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, paragraph, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
 

@@ -213,6 +213,16 @@ const HANDLERS: Record<string, Handler> = {
     d: t.doc.pathEdit(input.id, input.moves, input.keep_handles === undefined ? {} : { handles: input.keep_handles }),
   }),
 
+  combine_shapes: (t, input: { operation: "union" | "subtract" | "intersect" | "exclude"; ids: NodeId[] }) => {
+    const id = t.doc.boolean(input.operation, input.ids);
+    return { id, d_length: t.doc.getNode(id).attrs.d?.length ?? 0 };
+  },
+
+  simplify_path: (t, input: { id: NodeId; tolerance?: number }) => {
+    const r = t.doc.simplify(input.id, input.tolerance === undefined ? {} : { tolerance: input.tolerance });
+    return { id: input.id, nodes: r.nodes };
+  },
+
   set_text: (t, input: { id: NodeId; text: string }) => {
     t.doc.setText(input.id, input.text);
     return { id: input.id };

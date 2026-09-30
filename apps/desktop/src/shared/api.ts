@@ -17,7 +17,12 @@ export type MenuAction =
   | "toggleSnap"
   | "simulateAiTurn"
   | "convertToPath"
-  | "editNodes";
+  | "editNodes"
+  | "union"
+  | "subtract"
+  | "intersect"
+  | "exclude"
+  | "simplify";
 
 export interface SaveResult {
   saved: boolean;

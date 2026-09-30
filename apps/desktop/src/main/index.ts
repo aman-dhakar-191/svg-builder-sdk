@@ -154,9 +154,21 @@ function buildMenu(): void {
           { role: "copy" },
           { role: "paste" },
           { role: "selectAll" },
-          { type: "separator" },
+        ],
+      },
+      {
+        label: "Path",
+        submenu: [
           { label: "Convert to Path", accelerator: "CmdOrCtrl+Shift+C", click: send("convertToPath") },
           { label: "Edit Path Nodes", click: send("editNodes") },
+          { type: "separator" },
+          // Bottom to top in the stacking order, like Inkscape; no shortcuts (Ctrl +/- zoom).
+          { label: "Union", click: send("union") },
+          { label: "Subtract (bottom minus the others)", click: send("subtract") },
+          { label: "Intersect", click: send("intersect") },
+          { label: "Exclude", click: send("exclude") },
+          { type: "separator" },
+          { label: "Simplify", accelerator: "CmdOrCtrl+L", click: send("simplify") },
         ],
       },
       view,

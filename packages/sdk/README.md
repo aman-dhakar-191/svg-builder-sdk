@@ -61,6 +61,8 @@ All throw `SvgEditorError`; none half-apply. Attribute values may be numbers (wr
 | `getPath(id)` | A `<path>`'s data as absolute segments (`M`, `L`, `C`, `Q`, `A`, `Z`), in the path's own coordinates. `NOT_A_PATH` / `INVALID_PATH` otherwise. |
 | `pathEdit(id, moves, { handles? })` | Moves end points (`"p"`) and control points (`"c1"`/`"c2"` of C, `"c"` of Q) by segment index. End points take their handles along unless `handles: false`. Returns the new `d` (absolute form). One undo step. |
 | `convertToPath(id)` | Replaces a rect, circle, ellipse, line, polyline or polygon by an equivalent `<path>` (same attributes and position); returns the new ID. `NOT_CONVERTIBLE` for percentages, units or zero sizes. |
+| `boolean(operation, ids)` | `"union"`, `"subtract"`, `"intersect"` or `"exclude"` of sibling shapes (paths or basic shapes, any transforms), bottom to top; subtract keeps the bottom shape minus the others. The result is a new `<path>` with the bottom shape's attributes and place. `EMPTY_RESULT` if nothing is left, `DIFFERENT_PARENTS` for non-siblings. Uses paper.js. |
+| `simplify(id, { tolerance? })` | Fewer points, same look (largest deviation `tolerance`, default 1, in the path's units). Returns the new `d` and node counts before/after. |
 | `transform(id, { translate?, scale?, rotate?, origin?, space? })` | new `transform` value. `origin`: `[x, y]` or `"center"`. `space`: `"parent"` (default) or `"local"` (the element's own axes). |
 | `setText(id, text)` | text content of an element or text node |
 
