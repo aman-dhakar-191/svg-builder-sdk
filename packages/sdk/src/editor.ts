@@ -3,6 +3,8 @@ import {
   formatNumber,
   IDENTITY,
   multiply,
+  CommandFailure,
+  parsePath,
   parseTransform,
   serialize,
   TEXT_TAG,
@@ -14,6 +16,8 @@ import {
   type Matrix,
   type NodeData,
   type NodeId,
+  type PathMove,
+  type PathSegment,
   type Query,
   type SerializeOptions,
   type SvgNode,
@@ -574,6 +578,35 @@ export class DocumentApi {
   /** Wraps sibling nodes in a new <g>; returns its ID. */
   group(ids: NodeId[]): NodeId {
     return this.run({ op: "group", ids }).id;
+  }
+
+  /**
+   * A <path>'s data as absolute segments (M, L, C, Q, A, Z): the indices and
+   * points pathEdit() works with, in the path's own coordinates.
+   */
+  getPath(id: NodeId): PathSegment[] {
+    const n = this.getNode(id);
+    if (n.tag !== "path") throw new SvgEditorError("NOT_A_PATH", `"${id}" is a <${n.tag}>, not a <path>.`, "Convert it first with convertToPath(id).");
+    try {
+      return parsePath(n.attrs.d ?? "");
+    } catch (e) {
+      if (e instanceof CommandFailure) throw SvgEditorError.fromCommand(e.error);
+      throw e;
+    }
+  }
+
+  /**
+   * Moves path points: end points ("p") and control points ("c1"/"c2" of C, "c" of Q),
+   * by segment index from getPath(). End points take their handles along unless
+   * `handles: false`. One undo step; returns the new `d` (absolute form).
+   */
+  pathEdit(id: NodeId, moves: PathMove[], options: { handles?: boolean } = {}): string {
+    return this.run({ op: "pathEdit", id, moves, ...(options.handles !== undefined ? { handles: options.handles } : {}) }).d;
+  }
+
+  /** Replaces a rect, circle, ellipse, line, polyline or polygon by an equivalent <path>; returns the new path's ID. */
+  convertToPath(id: NodeId): NodeId {
+    return this.run({ op: "convertToPath", id }).id;
   }
 
   /** Removes a <g>, keeping its children in place; returns their IDs. */

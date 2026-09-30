@@ -227,3 +227,82 @@ test("shapes dragged past the page edge stay visible and grabbable; the page edg
   const back = (await circle().boundingBox())!;
   expect(back.x + back.width).toBeLessThan(pageBox.x + pageBox.width);
 });
+
+// ----------------------------------------------------------- path editing
+
+const menu = (action: string) => app.evaluate(({ BrowserWindow }, a) => BrowserWindow.getAllWindows()[0]!.webContents.send("menu", a), action);
+const nodes = () => page.locator("#overlay .handle.node");
+
+test("Convert to Path, then drag a node: preview matches result, one undo step, minimal patch", async () => {
+  const original = await code();
+  await rect().click();
+  await menu("convertToPath");
+  const path = page.locator("#canvas svg > path");
+  // The sample rect has rx="8": corners become arcs.
+  const converted = "M18 10 H82 A8 8 0 0 1 90 18 V62 A8 8 0 0 1 82 70 H18 A8 8 0 0 1 10 62 V18 A8 8 0 0 1 18 10 Z";
+  await expect(path).toHaveAttribute("d", converted);
+  await expect(page.locator("#canvas svg > rect")).toHaveCount(0);
+  await expect(nodes()).toHaveCount(9); // M + 4 lines + 4 arcs
+  await expect(page.locator("#status")).toContainText("Editing path nodes");
+  const afterConvert = await code();
+  expect(afterConvert).toContain(`<path fill="#4f46e5" d="${converted}"/>`); // attributes keep their order
+
+  // Drag the second node (end of the top edge) down-left.
+  const b = (await nodes().nth(1).boundingBox())!;
+  const from = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  let preview = "";
+  await drag(from, { x: from.x - 40, y: from.y + 30 }, { beforeUp: async () => { preview = (await path.getAttribute("d"))!; } });
+  await expect.poll(() => path.getAttribute("d")).toBe(preview);
+  expect(preview).toMatch(/^M18 10 L\d+(\.\d+)? \d+(\.\d+)? A8 8 0 0 1 90 18 L90 62 /);
+  expect(changedLines(afterConvert, await code())).toHaveLength(1); // only the path's line
+  expect(await fallbacks()).toBe(0);
+
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(afterConvert);
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(original);
+});
+
+test("double-click a path to edit its curve handles; Alt moves a point alone; Esc and Delete behave", async () => {
+  await page.evaluate(() => (window as unknown as { editor: { editor: { doc: { add(t: string, a: object): string } } } }).editor.editor.doc.add("path", { d: "M20 100 C40 80 60 80 80 100", stroke: "black", fill: "none", "stroke-width": "3" }));
+  const path = page.locator("#canvas svg > path");
+  await expect(path).toHaveCount(1);
+  // A point on the stroke, a quarter along, away from the selection handles.
+  const on = await path.evaluate((el) => {
+    const p = el as SVGPathElement;
+    const q = p.getPointAtLength(p.getTotalLength() * 0.25).matrixTransform(p.getScreenCTM()!);
+    return { x: q.x, y: q.y };
+  });
+  await page.mouse.dblclick(on.x, on.y);
+  await expect(nodes()).toHaveCount(2);
+  await expect(page.locator("#overlay .handle.ctrl")).toHaveCount(2);
+
+  // Drag control point c1 up: only c1 changes.
+  const c = (await page.locator("#overlay .handle.ctrl").first().boundingBox())!;
+  const from = { x: c.x + c.width / 2, y: c.y + c.height / 2 };
+  await drag(from, { x: from.x, y: from.y - 20 });
+  await expect.poll(() => path.getAttribute("d")).toMatch(/^M20 100 C40 \d+(\.\d+)? 60 80 80 100$/);
+
+  // Alt+drag the end node: its handle (60 80) stays.
+  const n = (await nodes().nth(1).boundingBox())!;
+  const nf = { x: n.x + n.width / 2, y: n.y + n.height / 2 };
+  await page.keyboard.down("Alt");
+  await drag(nf, { x: nf.x + 20, y: nf.y });
+  await page.keyboard.up("Alt");
+  await expect.poll(() => path.getAttribute("d")).toMatch(/ 60 80 \d+(\.\d+)? 100$/);
+  expect(await path.getAttribute("d")).not.toMatch(/ 80 100$/);
+
+  // Delete does not delete the path while editing nodes; Esc leaves node editing.
+  await page.keyboard.press("Delete");
+  await expect(path).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(nodes()).toHaveCount(0);
+  await expect(page.locator("#overlay .handle.nw")).toHaveCount(1); // normal handles again
+});
+
+test("Convert to Path explains what it cannot do", async () => {
+  await page.locator("#canvas svg > text").click();
+  await menu("convertToPath");
+  await expect(page.locator("#status")).toContainText("cannot be converted");
+  await expect(page.locator("#canvas svg > text")).toHaveCount(1);
+});

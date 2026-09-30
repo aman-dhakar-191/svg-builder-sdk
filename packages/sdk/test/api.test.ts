@@ -293,6 +293,44 @@ describe("exportPng options", () => {
   });
 });
 
+describe("paths", () => {
+  const SRC2 = `<svg viewBox="0 0 100 100">
+  <!-- shapes -->
+  <rect id="r" x='10' y="10" width="20" height="10" fill="red"/>
+  <path id="p" d="m0 0 c10 0 20 10 30 10" stroke="black"/>
+</svg>
+`;
+
+  it("edits path points with a minimal patch and byte-exact undo", () => {
+    const ed = createEditor({ svg: SRC2 });
+    const p = ed.doc.query({ attr: { id: "p" } })[0]!;
+    expect(ed.doc.getPath(p)).toEqual([{ cmd: "M", p: [0, 0] }, { cmd: "C", c1: [10, 0], c2: [20, 10], p: [30, 10] }]);
+    expect(ed.doc.pathEdit(p, [{ seg: 1, point: "p", to: [30, 30] }])).toBe("M0 0 C10 0 20 30 30 30");
+    expect(ed.text).toBe(SRC2.replace('d="m0 0 c10 0 20 10 30 10"', 'd="M0 0 C10 0 20 30 30 30"'));
+    ed.undo();
+    expect(ed.text).toBe(SRC2);
+  });
+
+  it("converts a shape to a path in place; undo restores the text exactly", () => {
+    const ed = createEditor({ svg: SRC2 });
+    const r = ed.doc.query({ attr: { id: "r" } })[0]!;
+    const path = ed.doc.convertToPath(r);
+    expect(ed.doc.getNode(path)).toMatchObject({ tag: "path", attrs: { id: "r", fill: "red", d: "M10 10 H30 V20 H10 Z" } });
+    expect(ed.text).toContain("<!-- shapes -->");
+    expect(ed.text).not.toContain("<rect");
+    ed.undo();
+    expect(ed.text).toBe(SRC2);
+  });
+
+  it("reports paths it cannot read, and non-paths", () => {
+    const ed = createEditor({ svg: '<svg><path d="M0 0 L"/><circle r="1"/></svg>' });
+    const [p] = ed.doc.query({ tag: "path" });
+    const [c] = ed.doc.query({ tag: "circle" });
+    expectError(() => ed.doc.getPath(p!), "INVALID_PATH");
+    expectError(() => ed.doc.getPath(c!), "NOT_A_PATH");
+  });
+});
+
 describe("translateInRoot", () => {
   it("moves nested elements by root units through scaled/rotated parents", () => {
     const ed = createEditor();

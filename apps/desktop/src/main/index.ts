@@ -147,7 +147,18 @@ function buildMenu(): void {
       ...(process.platform === "darwin" ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
       file,
       // Undo/redo belong to the document model, handled in the renderer.
-      { label: "Edit", submenu: [{ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
+      {
+        label: "Edit",
+        submenu: [
+          { role: "cut" },
+          { role: "copy" },
+          { role: "paste" },
+          { role: "selectAll" },
+          { type: "separator" },
+          { label: "Convert to Path", accelerator: "CmdOrCtrl+Shift+C", click: send("convertToPath") },
+          { label: "Edit Path Nodes", click: send("editNodes") },
+        ],
+      },
       view,
       debug,
       { role: "windowMenu" },

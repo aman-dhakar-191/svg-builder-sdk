@@ -69,7 +69,7 @@ describe.each(files)("corpus: %s", (file) => {
       const randomCommand = (): Command | undefined => {
         const id = pick(elements());
         const any = pick(s.doc.query());
-        switch (Math.floor(rand() * 9)) {
+        switch (Math.floor(rand() * 11)) {
           case 0: {
             if (!id) return undefined;
             const attrs = s.doc.getNode(id)!.attrs;
@@ -100,6 +100,12 @@ describe.each(files)("corpus: %s", (file) => {
           case 7: {
             const host = pick(textHosts());
             return host ? { op: "setText", id: host, text: rand() < 0.2 ? "" : `t${Math.floor(rand() * 9)} & <x>` } : undefined;
+          }
+          case 8:
+            return id ? { op: "convertToPath", id } : undefined;
+          case 9: {
+            const p = pick(s.doc.query({ tag: "path" }));
+            return p ? { op: "pathEdit", id: p, moves: [{ seg: Math.floor(rand() * 3), point: "p", to: [Math.round(rand() * 50), Math.round(rand() * 50)] }] } : undefined;
           }
           default: {
             const a = randomCommand();

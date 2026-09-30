@@ -50,7 +50,15 @@ export type Command =
   | { op: "setText"; id: NodeId; text: string }
   | { op: "batch"; commands: Command[] }
   /** Replace the whole document content (e.g. after a code edit). Nodes with an `id` keep it. */
-  | { op: "replace"; tree: InputTree };
+  | { op: "replace"; tree: InputTree }
+  /**
+   * Move points of a <path>: end points ("p") and control points ("c1"/"c2" of C, "c" of Q),
+   * by segment index in getPath() order, in the path's own coordinates. Moving an end point
+   * also moves its handles unless `handles` is false. Rewrites `d` in absolute form.
+   */
+  | { op: "pathEdit"; id: NodeId; moves: { seg: number; point: "p" | "c1" | "c2" | "c"; to: Vec2 }[]; handles?: boolean }
+  /** Replace a basic shape (rect, circle, ellipse, line, polyline, polygon) by an equivalent <path>. */
+  | { op: "convertToPath"; id: NodeId };
 
 export type CommandOp = Command["op"];
 
@@ -71,6 +79,9 @@ export type ErrorCode =
   | "INVALID_TRANSFORM"
   | "BBOX_UNAVAILABLE"
   | "HAS_ELEMENT_CHILDREN"
+  | "INVALID_PATH"
+  | "NOT_A_PATH"
+  | "NOT_CONVERTIBLE"
   | "BATCH_FAILED";
 
 export interface CommandError {
@@ -94,6 +105,9 @@ export interface CommandResultMap {
   setText: { id: NodeId };
   batch: { results: unknown[] };
   replace: { root: NodeId };
+  pathEdit: { id: NodeId; d: string };
+  /** The new <path> (a new node: the shape's ID is not reused). */
+  convertToPath: { id: NodeId; d: string };
 }
 
 export type CommandResult<T = unknown> =

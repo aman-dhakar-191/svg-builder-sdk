@@ -6,6 +6,7 @@ import {
   parseTransformList,
 } from "./geometry.js";
 import type { Mutation } from "./mutations.js";
+import { formatPath, movePathPoints, parsePath, shapeToPath, type PathMove } from "./path.js";
 import {
   TEXT_TAG,
   type BBox,
@@ -72,9 +73,9 @@ function requireIndex(v: unknown, op: string): number {
   return v;
 }
 
-function requireVec2(v: unknown, field: string): Vec2 {
+function requireVec2(v: unknown, field: string, op = "transform"): Vec2 {
   if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) {
-    fail("INVALID_COMMAND", `transform: "${field}" must be [x, y] with two finite numbers, got ${JSON.stringify(v)}.`, `Example: ${field}: [10, 20].`);
+    fail("INVALID_COMMAND", `${op}: "${field}" must be [x, y] with two finite numbers, got ${JSON.stringify(v)}.`, `Example: ${field}: [10, 20].`);
   }
   return [v[0], v[1]];
 }
@@ -503,6 +504,43 @@ function replace(ctx: CommandContext, cmd: Record<string, unknown>): CommandResu
   return { root: ctx.root };
 }
 
+function pathEdit(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["pathEdit"] {
+  const id = requireString(cmd.id, "id", "pathEdit");
+  const node = getElement(ctx, id, "pathEdit");
+  if (node.tag !== "path") fail("NOT_A_PATH", `pathEdit: "${id}" is a <${node.tag}>, not a <path>.`, "Convert it first with convertToPath.");
+  if (!Array.isArray(cmd.moves) || cmd.moves.length === 0) {
+    fail("INVALID_COMMAND", 'pathEdit: "moves" must be a non-empty array.', 'Example: moves: [{ seg: 1, point: "p", to: [20, 30] }].');
+  }
+  const moves: PathMove[] = cmd.moves.map((m: unknown, i: number) => {
+    if (!isRecord(m) || typeof m.seg !== "number" || !Number.isInteger(m.seg) || !["p", "c1", "c2", "c"].includes(m.point as string)) {
+      fail("INVALID_COMMAND", `pathEdit: moves[${i}] needs an integer "seg", a "point" ("p", "c1", "c2" or "c") and "to".`, 'Example: { seg: 1, point: "p", to: [20, 30] }.');
+    }
+    return { seg: m.seg, point: m.point as PathMove["point"], to: requireVec2(m.to, `moves[${i}].to`, "pathEdit") };
+  });
+  if (cmd.handles !== undefined && typeof cmd.handles !== "boolean") fail("INVALID_COMMAND", 'pathEdit: "handles" must be a boolean.', "Omit it to move handles with their points.");
+  const d = formatPath(movePathPoints(parsePath(node.attrs.d ?? ""), moves, cmd.handles !== false));
+  setAttrs(ctx, node, { ...node.attrs, d });
+  return { id, d };
+}
+
+function convertToPath(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["convertToPath"] {
+  const id = requireString(cmd.id, "id", "convertToPath");
+  const node = getElement(ctx, id, "convertToPath");
+  notRoot(ctx, id, "convertToPath");
+  const r = shapeToPath(node.tag, node.attrs);
+  if ("error" in r) fail("NOT_CONVERTIBLE", `convertToPath: "${id}" cannot be converted: ${r.error}.`, "Only rect, circle, ellipse, line, polyline and polygon with plain numeric geometry convert.");
+  // Same attributes in the same order, geometry swapped for d.
+  const attrs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(node.attrs)) if (!r.used.includes(k)) attrs[k] = v;
+  attrs.d = r.d;
+  const parentId = node.parent!;
+  const pid = ctx.newId();
+  ctx.apply({ kind: "insert", parent: parentId, index: indexOf(ctx, id), nodes: [{ id: pid, tag: "path", attrs, children: [], parent: parentId }] });
+  [...node.children].forEach((c, i) => moveNode(ctx, c, pid, i));
+  removeNode(ctx, id);
+  return { id: pid, d: r.d };
+}
+
 const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown>) => unknown> = {
   add,
   set,
@@ -514,6 +552,8 @@ const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown
   setText,
   batch,
   replace,
+  pathEdit,
+  convertToPath,
 };
 
 /** Runs one command. Throws CommandFailure; the caller rolls back partial changes. */

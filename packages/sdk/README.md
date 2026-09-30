@@ -58,6 +58,9 @@ All throw `SvgEditorError`; none half-apply. Attribute values may be numbers (wr
 | `delete(id \| ids)` | |
 | `move(id, parent, index)` | `index` is the final position among the new parent's children |
 | `group(ids)` / `ungroup(id)` | group ID / child IDs. Ungroup refuses (`UNGROUP_LOSSY`) if the group's attributes cannot move to its children without changing the rendering. |
+| `getPath(id)` | A `<path>`'s data as absolute segments (`M`, `L`, `C`, `Q`, `A`, `Z`), in the path's own coordinates. `NOT_A_PATH` / `INVALID_PATH` otherwise. |
+| `pathEdit(id, moves, { handles? })` | Moves end points (`"p"`) and control points (`"c1"`/`"c2"` of C, `"c"` of Q) by segment index. End points take their handles along unless `handles: false`. Returns the new `d` (absolute form). One undo step. |
+| `convertToPath(id)` | Replaces a rect, circle, ellipse, line, polyline or polygon by an equivalent `<path>` (same attributes and position); returns the new ID. `NOT_CONVERTIBLE` for percentages, units or zero sizes. |
 | `transform(id, { translate?, scale?, rotate?, origin?, space? })` | new `transform` value. `origin`: `[x, y]` or `"center"`. `space`: `"parent"` (default) or `"local"` (the element's own axes). |
 | `setText(id, text)` | text content of an element or text node |
 

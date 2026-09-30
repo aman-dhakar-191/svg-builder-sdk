@@ -200,3 +200,24 @@ describe("render_snapshot", () => {
     expect(await err("render_snapshot", {})).toMatchObject({ code: "NO_RASTERIZER" });
   });
 });
+
+describe("path tools", () => {
+  it("convert_to_path, get_element segments, edit_path; all undoable", async () => {
+    const [r] = (await ok("add_elements", { elements: [{ tag: "rect", attributes: { x: 10, y: 10, width: 20, height: 10, fill: "red" } }] })).ids as string[];
+    const [p] = (await ok("convert_to_path", { ids: [r] })).ids as string[];
+    const el = await ok("get_element", { id: p });
+    expect(el.segments).toEqual([
+      { cmd: "M", p: [10, 10] },
+      { cmd: "L", p: [30, 10] },
+      { cmd: "L", p: [30, 20] },
+      { cmd: "L", p: [10, 20] },
+      { cmd: "Z" },
+    ]);
+    expect((await ok("edit_path", { id: p, moves: [{ seg: 2, point: "p", to: [40, 30] }] })).d).toBe("M10 10 L30 10 L40 30 L10 20 Z");
+    expect((await err("edit_path", { id: p, moves: [{ seg: 1, point: "c1", to: [0, 0] }] })).code).toBe("INVALID_COMMAND");
+    expect((await err("convert_to_path", { ids: [editor.doc.query({ attr: { id: "sky" } })[0], "n_404"] })).code).toBe("NOT_FOUND");
+    session.commit();
+    editor.undo();
+    expect(editor.text).toBe(SRC);
+  });
+});
