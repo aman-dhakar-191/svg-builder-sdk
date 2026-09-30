@@ -179,6 +179,12 @@ describe("UI cannot bypass the SDK", () => {
 
   it("main and preload do not touch documents", () => {
     for (const f of ["main/index.ts", "preload/index.ts"]) expect(read(f)).not.toMatch(/@svg-editor\//);
+    // The AI half in main only needs the tool definitions and prompt; tools run in the renderer through the SDK.
+    for (const f of readdirSync(new URL("main/ai/", app))) {
+      const imports = [...read(`main/ai/${f}`).matchAll(/from\s+"(@svg-editor\/[^"]+)"/g)].map((m) => m[1]);
+      expect(imports.every((i) => i === "@svg-editor/ai-tools"), `main/ai/${f} imports ${imports.join(", ")}`).toBe(true);
+      expect(read(`main/ai/${f}`)).not.toMatch(/\bdispatch\b/);
+    }
   });
 });
 

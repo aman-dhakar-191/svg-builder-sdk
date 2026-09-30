@@ -614,6 +614,22 @@ export class DocumentApi {
     return m;
   }
 
+  /**
+   * Moves an element by (dx, dy) in root user units, converting through its
+   * ancestors' transforms (for align / distribute on nested elements).
+   */
+  translateInRoot(id: NodeId, [dx, dy]: Vec2): string {
+    const parent = this.getNode(id).parent;
+    const m = parent && parent !== this.root ? this.toRootMatrix(parent) : IDENTITY;
+    const det = m[0] * m[3] - m[1] * m[2];
+    if (Math.abs(det) < 1e-12) {
+      throw new SvgEditorError("INVALID_TRANSFORM", `An ancestor of "${id}" collapses it (scale 0), so it cannot be moved in root units.`, "Fix the ancestor's transform first.");
+    }
+    const px = (m[3] * dx - m[2] * dy) / det;
+    const py = (-m[1] * dx + m[0] * dy) / det;
+    return this.transform(id, { translate: [px, py] });
+  }
+
   /** Maps a point from an element's user space to root user space. */
   pointToRoot(id: NodeId, p: Vec2): Vec2 {
     return applyToPoint(this.toRootMatrix(id), p);

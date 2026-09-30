@@ -7,6 +7,7 @@ import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } f
 import { createEditor, EMPTY_SVG, SvgEditorError, type AbortSignalLike, type Editor, type LockInfo, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
 import type { DesktopApi, MenuAction } from "../shared/api.js";
 import { CanvasController, type Tool } from "./canvas.js";
+import { ChatPanel } from "./chat.js";
 import { selectionHighlight, setHighlights } from "./highlight.js";
 import { LayersPanel } from "./layers.js";
 import { PropertiesPanel } from "./properties.js";
@@ -149,7 +150,7 @@ function applyLock(info: LockInfo | null): void {
   document.getElementById("lock-label")!.textContent = info?.label ?? "";
   document.body.classList.toggle("locked", locked);
   document.querySelector<HTMLElement>(".stage")!.inert = locked;
-  document.querySelector<HTMLElement>(".sidebar")!.inert = locked;
+  document.querySelector<HTMLElement>(".design-panels")!.inert = locked;
   for (const b of toolbar.querySelectorAll<HTMLButtonElement>("[data-tool]")) b.disabled = locked;
   if (locked) canvas.interrupt();
   view.dispatch({ effects: editable.reconfigure(locked ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
@@ -431,6 +432,19 @@ const menu: Record<MenuAction, () => void> = {
 };
 window.desktop?.onMenu((action) => menu[action]?.());
 
+// Sidebar tabs: Design (layers, properties) and AI (chat).
+const tabs = [...document.querySelectorAll<HTMLButtonElement>(".tabs [data-tab]")];
+function showTab(name: string): void {
+  for (const t of tabs) {
+    const on = t.dataset.tab === name;
+    t.setAttribute("aria-selected", String(on));
+    document.getElementById(`tab-${t.dataset.tab}`)!.hidden = !on;
+  }
+}
+for (const t of tabs) t.addEventListener("click", () => showTab(t.dataset.tab!));
+
+const chat = window.desktop ? new ChatPanel({ api: window.desktop.ai, editor: () => editor, flush, status: showStatus }) : null;
+
 attach(editor);
 canvas.setTool("select");
 canvas.render();
@@ -442,5 +456,5 @@ showSelectionStatus([]);
 
 // Exposed for end-to-end tests and debugging only.
 Object.defineProperty(window, "editor", {
-  get: () => ({ editor, view, flush, canvas, viewport, menu }),
+  get: () => ({ editor, view, flush, canvas, viewport, menu, chat, showTab }),
 });

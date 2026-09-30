@@ -43,14 +43,60 @@
         <div id="status" role="status"></div>
       </section>
       <aside class="pane sidebar">
-        <section class="panel layers-panel" aria-label="Layers">
-          <h2>Layers</h2>
-          <div id="layers" role="tree"></div>
-        </section>
-        <section class="panel props-panel" aria-label="Properties">
-          <h2>Properties</h2>
-          <div id="props"></div>
-        </section>
+        <div class="tabs" role="tablist" aria-label="Sidebar">
+          <button role="tab" id="tab-design-button" data-tab="design" aria-controls="tab-design" aria-selected="true">Design</button>
+          <button role="tab" id="tab-ai-button" data-tab="ai" aria-controls="tab-ai" aria-selected="false">AI</button>
+        </div>
+        <div id="tab-design" class="tab-body design-panels" role="tabpanel" aria-labelledby="tab-design-button">
+          <section class="panel layers-panel" aria-label="Layers">
+            <h2>Layers</h2>
+            <div id="layers" role="tree"></div>
+          </section>
+          <section class="panel props-panel" aria-label="Properties">
+            <h2>Properties</h2>
+            <div id="props"></div>
+          </section>
+        </div>
+        <div id="tab-ai" class="tab-body chat" role="tabpanel" aria-labelledby="tab-ai-button" hidden>
+          <details id="ai-settings-box">
+            <summary>AI settings</summary>
+            <form id="ai-settings" autocomplete="off">
+              <label>API format
+                <select name="format">
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="openai-compatible">OpenAI-compatible</option>
+                </select>
+              </label>
+              <label>Base URL <input name="baseUrl" type="url" spellcheck="false" /></label>
+              <label>Model <input name="model" required spellcheck="false" /></label>
+              <label>Effort
+                <select name="effort">
+                  <option value="default">Model default</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
+              <label>API key <input name="apiKey" type="password" spellcheck="false" /></label>
+              <p id="ai-settings-hint" class="hint"></p>
+              <div class="row">
+                <button type="submit">Save</button>
+                <button type="button" id="ai-test">Test connection</button>
+                <button type="button" id="ai-clear-key" hidden>Remove key</button>
+              </div>
+              <p id="ai-settings-status" role="status"></p>
+            </form>
+          </details>
+          <div id="chat-log" aria-live="polite"></div>
+          <form id="chat-form">
+            <textarea id="chat-input" rows="3" placeholder="Ask for a change, e.g. “draw a simple house with a red door”"></textarea>
+            <div class="row">
+              <button type="button" id="chat-new" title="Start a new conversation (the drawing is kept)">New chat</button>
+              <span class="spacer"></span>
+              <button type="submit" id="chat-send">Send</button>
+            </div>
+          </form>
+        </div>
       </aside>
     </main>
     <script type="module" src="./main.ts"></script>

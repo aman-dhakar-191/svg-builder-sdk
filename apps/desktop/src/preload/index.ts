@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { AiEvent, AiToolCall, AiToolOutcome, AiSettingsUpdate } from "../shared/ai.js";
 import type { DesktopApi, MenuAction, SaveResult } from "../shared/api.js";
 
 // The only surface the renderer gets from Electron: narrow, typed functions.
@@ -14,6 +15,21 @@ const api: DesktopApi = {
   closeWindow: (): void => ipcRenderer.send("window:close"),
   onMenu: (listener: (action: MenuAction) => void): void => {
     ipcRenderer.on("menu", (_e, action: MenuAction) => listener(action));
+  },
+  ai: {
+    getSettings: () => ipcRenderer.invoke("ai:getSettings"),
+    saveSettings: (update: AiSettingsUpdate) => ipcRenderer.invoke("ai:saveSettings", update),
+    test: (update: AiSettingsUpdate) => ipcRenderer.invoke("ai:test", update),
+    run: (turnId: string, text: string) => ipcRenderer.invoke("ai:run", turnId, text),
+    stop: () => ipcRenderer.send("ai:stop"),
+    reset: () => ipcRenderer.invoke("ai:reset"),
+    onEvent: (listener: (event: AiEvent) => void) => {
+      ipcRenderer.on("ai:event", (_e, event: AiEvent) => listener(event));
+    },
+    onToolCall: (listener: (call: AiToolCall) => void) => {
+      ipcRenderer.on("ai:toolCall", (_e, call: AiToolCall) => listener(call));
+    },
+    sendToolResult: (callId: string, outcome: AiToolOutcome) => ipcRenderer.send("ai:toolResult", callId, outcome),
   },
 };
 

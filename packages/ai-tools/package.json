@@ -1,0 +1,22 @@
+{
+  "name": "@svg-editor/ai-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-neutral AI tool schemas, system prompt and dispatcher mapped onto @svg-editor/sdk.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@svg-editor/sdk": "workspace:*"
+  }
+}

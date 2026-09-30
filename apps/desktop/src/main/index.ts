@@ -1,6 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { registerAiIpc } from "./ai/index.js";
+
+// Tests point userData at a temp dir so settings never touch the real profile.
+if (process.env.SVG_EDITOR_USER_DATA) app.setPath("userData", process.env.SVG_EDITOR_USER_DATA);
 
 /**
  * Per-window file state lives here, not in the renderer: the renderer never
@@ -204,6 +208,7 @@ app.on("web-contents-created", (_e, contents) => {
 });
 
 void app.whenReady().then(() => {
+  registerAiIpc();
   buildMenu();
   createWindow();
   app.on("activate", () => {
