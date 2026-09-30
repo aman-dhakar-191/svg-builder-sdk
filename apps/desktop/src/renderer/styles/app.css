@@ -1,0 +1,132 @@
+/* Design tokens: cool neutrals biased to the ink colour; one ink (cyan) for
+   editing and selection, one warm colour for the agent. Light first; dark via
+   the system setting unless the user picked a theme ([data-theme]). */
+:root {
+  --bg: #eef1f2;
+  --panel: #ffffff;
+  --panel-2: #f6f8f9;
+  --hover: #eef2f4;
+  --line: #d9e0e3;
+  --line-strong: #c3ccd1;
+  --fg: #14191c;
+  --muted: #5d6a71;
+  --ink: #0b7a93;
+  --ink-hover: #096a80;
+  --ink-soft: #dff1f5;
+  --ink-fg: #ffffff;
+  --warm: #c2560c;
+  --warm-soft: #fbeadf;
+  --ok: #2f7d4f;
+  --err: #b42318;
+  --err-soft: #fdecea;
+  --paper: #ffffff;
+  --desk: #e3e8ea;
+  --page-edge: #9aa6ac;
+  --checker: #e8ecee;
+  --code-tag: #0b6a80;
+  --code-attr: #8a4b08;
+  --code-val: #2f6b3f;
+  --scrim: rgb(10 14 16 / 0.32);
+  --shadow-sm: 0 1px 2px rgb(20 25 28 / 0.08);
+  --shadow: 0 1px 2px rgb(20 25 28 / 0.06), 0 8px 24px rgb(20 25 28 / 0.1);
+  --f-ui: "Onest", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "Fragment Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --fast: 120ms;
+  --med: 200ms;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1215; --panel: #141a1e; --panel-2: #10161a; --hover: #1b2328; --line: #242d33; --line-strong: #33404a;
+    --fg: #e4eaed; --muted: #8d9aa1; --ink: #3cb6d0; --ink-hover: #5cc6dd; --ink-soft: #113039; --ink-fg: #061418;
+    --warm: #f08a45; --warm-soft: #3a2415; --ok: #5fbf85; --err: #f07a6f; --err-soft: #3a1a17;
+    --paper: #1b2227; --desk: #0a0e10; --page-edge: #46525a; --checker: #20282d; --code-tag: #5cc8df; --code-attr: #e2a766; --code-val: #93cf9e; --scrim: rgb(0 0 0 / 0.5);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4); --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1215; --panel: #141a1e; --panel-2: #10161a; --hover: #1b2328; --line: #242d33; --line-strong: #33404a;
+  --fg: #e4eaed; --muted: #8d9aa1; --ink: #3cb6d0; --ink-hover: #5cc6dd; --ink-soft: #113039; --ink-fg: #061418;
+  --warm: #f08a45; --warm-soft: #3a2415; --ok: #5fbf85; --err: #f07a6f; --err-soft: #3a1a17;
+  --paper: #1b2227; --desk: #0a0e10; --page-edge: #46525a; --checker: #20282d; --code-tag: #5cc8df; --code-attr: #e2a766; --code-val: #93cf9e; --scrim: rgb(0 0 0 / 0.5);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4); --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --med: 0ms; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--f-ui); -webkit-font-smoothing: antialiased; overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+[hidden] { display: none !important; }
+::selection { background: var(--ink-soft); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--line-strong); }
+
+/* Shared controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 0 12px; font-weight: 500; transition: background var(--fast), border-color var(--fast), transform var(--fast); white-space: nowrap; }
+.btn:hover:not(:disabled) { background: var(--hover); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.55; }
+.btn.primary { background: var(--ink); border-color: var(--ink); color: var(--ink-fg); }
+.btn.primary:hover:not(:disabled) { background: var(--ink-hover); }
+.btn.warm { background: var(--warm); border-color: var(--warm); color: #fff; }
+.btn.ghost { border-color: transparent; background: none; }
+.btn.small { height: 26px; padding: 0 9px; font-size: 12px; }
+.icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 0; background: none; border-radius: 7px; color: var(--muted); transition: background var(--fast), color var(--fast); flex: none; }
+.icon-btn:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.icon-btn[aria-pressed="true"] { background: var(--ink-soft); color: var(--ink); }
+.icon-btn:disabled { opacity: 0.45; }
+.kbd { font: 11px var(--f-mono); color: var(--muted); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel); white-space: nowrap; }
+.input { height: 30px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 0 10px; min-width: 0; transition: border-color var(--fast); }
+.input:focus { outline: none; border-color: var(--ink); }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+.eyebrow { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.spacer { flex: 1; }
+
+/* Canvas engine (canvas.ts / viewport.ts render into these) */
+#canvas { position: absolute; inset: 0; overflow: auto; display: flex; padding: 32px; background: var(--desk); }
+#canvas > svg {
+  margin: auto; flex: none; overflow: visible; background-color: var(--paper);
+  background-image: conic-gradient(var(--checker) 25%, transparent 0 50%, var(--checker) 0 75%, transparent 0); background-size: 16px 16px;
+  box-shadow: 0 0 0 1px var(--page-edge), 0 4px 18px rgb(0 0 0 / 0.14);
+  transition: box-shadow var(--med);
+}
+#canvas:focus { outline: none; }
+#canvas[data-tool="rect"], #canvas[data-tool="ellipse"], #canvas[data-tool="line"] { cursor: crosshair; }
+#canvas[data-tool="text"] { cursor: text; }
+#grid, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#grid .off-page { fill: color-mix(in srgb, var(--desk) 70%, transparent); }
+#grid .grid-lines { stroke: color-mix(in srgb, var(--fg) 12%, transparent); stroke-width: 1; fill: none; shape-rendering: crispEdges; }
+#overlay .handle { pointer-events: all; fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+#overlay .handle.nw, #overlay .handle.se { cursor: nwse-resize; }
+#overlay .handle.ne, #overlay .handle.sw { cursor: nesw-resize; }
+#overlay .handle.n, #overlay .handle.s { cursor: ns-resize; }
+#overlay .handle.e, #overlay .handle.w { cursor: ew-resize; }
+#overlay .handle.rotate { cursor: grab; }
+#overlay .handle.node { cursor: move; }
+#overlay .handle.ctrl { fill: var(--ink); stroke: var(--panel); cursor: move; }
+#overlay .ctrl-line { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 2 2; }
+#overlay .sel-outline { fill: none; stroke: var(--ink); stroke-width: 1; }
+#overlay .sel-group { fill: none; stroke: var(--ink); stroke-dasharray: 4 3; }
+#overlay .sel-stem { stroke: var(--ink); }
+#overlay .marquee { fill: color-mix(in srgb, var(--ink) 12%, transparent); stroke: var(--ink); stroke-dasharray: 3 2; }
+.text-input { position: absolute; z-index: 2; font: 16px var(--f-ui); padding: 3px 6px; min-width: 160px; border: 1px solid var(--ink); border-radius: 6px; background: var(--panel); box-shadow: var(--shadow); }
+
+/* CodeMirror */
+.cm-editor { height: 100%; background: var(--panel); color: var(--fg); }
+.cm-editor .cm-scroller { font: 12.5px/1.65 var(--f-mono); }
+.cm-editor .cm-gutters { background: var(--panel); border-right: 1px solid var(--line); color: var(--muted); }
+.cm-editor .cm-activeLine, .cm-editor .cm-activeLineGutter { background: color-mix(in srgb, var(--ink-soft) 45%, transparent); }
+.cm-editor.cm-focused { outline: none; }
+.cm-editor .cm-cursor { border-left-color: var(--ink); }
+.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--ink) 22%, transparent) !important; }
+.cm-selected-node { background: color-mix(in srgb, var(--ink) 16%, transparent); border-radius: 2px; }

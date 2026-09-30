@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "electron-vite";
 
 // Workspace packages are bundled from source.
@@ -17,6 +18,7 @@ export default defineConfig({
   preload: { build: { outDir: "out/preload", rollupOptions: { output: { format: "cjs", entryFileNames: "[name].cjs" } } } },
   renderer: {
     root: "src/renderer",
+    plugins: [svelte()],
     resolve: { alias },
     build: { outDir: "out/renderer" },
   },

@@ -110,3 +110,34 @@ test("the main process bundle needs only Electron and Node built-ins (no documen
   const bad = [...required].filter((r) => r !== "electron" && !r.startsWith("node:") && !r.startsWith("./"));
   expect(bad).toEqual([]);
 });
+
+test("Ctrl+E switches editor / agent; Ctrl+K runs any action by name", async () => {
+  await expect(page.locator("#code")).toBeVisible();
+  await page.locator("#canvas").focus();
+  await page.keyboard.press("Control+e");
+  await expect(page.locator("#chat-input")).toBeVisible();
+  await expect(page.locator("#code")).toBeHidden();
+  await expect(page.locator("#canvas svg")).toBeVisible(); // the same canvas stays on screen
+  await page.locator('[data-mode-switch="editor"]').click();
+  await expect(page.locator("#code")).toBeVisible();
+
+  await page.keyboard.press("Control+k");
+  await page.getByLabel("Search actions").fill("theme dark");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // The theme is remembered across launches; put it back for the other tests.
+  await page.keyboard.press("Control+k");
+  await page.getByLabel("Search actions").fill("theme system");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", /./);
+});
+
+test("reduced motion: dialogs and panels appear without animating", async () => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.locator("#open-settings").click();
+  await expect(page.locator("#ai-settings")).toBeVisible();
+  expect(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length)).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

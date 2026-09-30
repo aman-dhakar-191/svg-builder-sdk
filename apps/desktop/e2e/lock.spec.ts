@@ -37,10 +37,11 @@ async function sessionAdd(tag: string, attrs: Record<string, string | number>) {
 
 test("locked: banner shown, canvas/panels/code/tools disabled, holder's edits show live", async () => {
   const original = await code();
+  await page.locator("#tab-layers-button").click();
   await lock("AI is drawing a house");
   await expect(page.locator("#lock-banner")).toBeVisible();
   await expect(page.locator("#lock-label")).toHaveText("AI is drawing a house");
-  await expect(page.locator('.toolbar [data-tool="rect"]')).toBeDisabled();
+  await expect(page.locator('button[data-tool="rect"]')).toBeDisabled();
 
   // Canvas and panels ignore the user.
   await page.locator("#canvas svg > rect").click({ force: true });
@@ -75,7 +76,7 @@ test("Stop discards the whole turn and unlocks", async () => {
   // Editing works again.
   await page.locator("#canvas svg > rect").click();
   await expect(page.locator("#overlay .handle")).toHaveCount(9);
-  await expect(page.locator('.toolbar [data-tool="rect"]')).toBeEnabled();
+  await expect(page.locator('button[data-tool="rect"]')).toBeEnabled();
 });
 
 test("Stop & keep keeps the partial turn as one undo step", async () => {

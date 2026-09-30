@@ -24,7 +24,7 @@ test.beforeEach(async () => {
   page = await app.firstWindow();
   await page.setViewportSize({ width: 1400, height: 800 });
   await page.waitForSelector("#canvas svg");
-  await page.locator("#tab-ai-button").click();
+  await page.locator('[data-mode-switch="agent"]').click();
 });
 
 test.afterEach(async () => {
@@ -37,8 +37,7 @@ test.afterEach(async () => {
 const code = () => page.evaluate(() => (window as unknown as { editor: { view: { state: { doc: { toString(): string } } } } }).editor.view.state.doc.toString());
 
 async function configure(format: "anthropic" | "openai-compatible", model: string, key = KEY, vision = true): Promise<void> {
-  const box = page.locator("#ai-settings-box");
-  if (!(await box.evaluate((d) => (d as HTMLDetailsElement).open))) await page.locator("#ai-settings-box summary").click();
+  await openSettings();
   await page.locator('#ai-settings [name="format"]').selectOption(format);
   await page.locator('#ai-settings [name="baseUrl"]').fill(format === "anthropic" ? baseUrl : `${baseUrl}/v1`);
   await page.locator('#ai-settings [name="model"]').fill(model);
@@ -46,6 +45,17 @@ async function configure(format: "anthropic" | "openai-compatible", model: strin
   if (key) await page.locator('#ai-settings [name="apiKey"]').fill(key);
   await page.locator('#ai-settings button[type="submit"]').click();
   await expect(page.locator("#ai-settings-status")).toHaveText("Saved.");
+  await closeSettings();
+}
+
+/** Settings live in a dialog; the chat is behind it, so tests close it before chatting. */
+async function openSettings(): Promise<void> {
+  if (!(await page.locator("#ai-settings").isVisible())) await page.locator("#open-settings").click();
+  await expect(page.locator("#ai-settings")).toBeVisible();
+}
+async function closeSettings(): Promise<void> {
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#ai-settings")).toBeHidden();
 }
 
 async function ask(text: string): Promise<void> {
@@ -79,9 +89,11 @@ test("acceptance (Anthropic): a house with a red door, locked while drawing, one
   // Mid-turn: the house is on the canvas, the editor is locked for the user.
   await expect(page.locator("#canvas svg #door")).toHaveCount(1);
   await expect(page.locator("#lock-banner")).toBeVisible();
-  await expect(page.locator("#lock-label")).toHaveText("AI is drawing…");
-  await expect(page.locator('.toolbar [data-tool="rect"]')).toBeDisabled();
-  await expect(page.locator("#chat-send")).toBeDisabled();
+  await expect(page.locator("#lock-label")).toHaveText("Agent is drawing · editing is paused");
+  await expect(page.locator('button[data-tool="rect"]')).toBeDisabled();
+  // While the agent works, Stop takes the place of Send.
+  await expect(page.locator("#chat-send")).toHaveCount(0);
+  await expect(page.locator("#chat-stop")).toBeVisible();
   hold.open();
 
   await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Let me look at the drawing.\n\nI drew a simple house with a red door.");
@@ -168,7 +180,8 @@ test("Stop cancels the request, discards the turn and the conversation forgets i
   await expect(page.locator("#lock-banner")).toBeHidden();
   await expect.poll(code).toBe(original);
   await expect(page.locator(".chat-note").last()).toHaveText("Stopped.");
-  await expect(page.locator("#chat-send")).toBeEnabled();
+  await expect(page.locator("#chat-stop")).toHaveCount(0);
+  await expect(page.locator("#chat-send")).toBeVisible();
 
   mock.script([{ text: "Hi." }]);
   await ask("hello");
@@ -199,6 +212,7 @@ test("API errors are shown, nothing changes, the editor unlocks", async () => {
 test("settings: test connection, key never returned to the page or written in plain text", async () => {
   await configure("anthropic", "claude-test-model");
   mock.script([{ tools: [{ name: "ping", input: {} }] }, { tools: [{ name: "ping", input: {} }] }]);
+  await openSettings();
   await page.locator("#ai-test").click();
   await expect(page.locator("#ai-settings-status")).toHaveText("Connected to mock-claude. Tool calling and images work.");
   // The second request checked image input with a small PNG.
@@ -217,7 +231,6 @@ test("settings: test connection, key never returned to the page or written in pl
 });
 
 test("OpenAI-compatible servers work without a key; a missing Anthropic key opens settings", async () => {
-  await page.locator('#ai-settings [name="format"]').selectOption("anthropic");
   await ask("hi");
   await expect(page.locator("#ai-settings-status")).toHaveText("Add an API key to start.");
   expect(mock.requests).toHaveLength(0);
@@ -281,6 +294,7 @@ test("models without image input: no snapshot tool, and Test connection says so"
 
   await configure("anthropic", "claude-test-model", KEY, true);
   mock.script([{ tools: [{ name: "ping", input: {} }] }, { status: 400, error: "image input is not supported" }]);
+  await openSettings();
   await page.locator("#ai-test").click();
   await expect(page.locator("#ai-settings-status")).toContainText("this model does not accept images");
 });
@@ -298,6 +312,7 @@ test("OpenAI-compatible gateway that streams even when asked not to", async () =
 test("model picker lists the endpoint's models (both formats); any name can still be typed", async () => {
   mock.models = ["gpt-a", "claude-code", "llama-3"];
   await configure("openai-compatible", "claude-code");
+  await openSettings();
   await expect(page.locator("#ai-models-status")).toHaveText("3 models available: pick one or type a name.");
   await expect(page.locator("#ai-models option")).toHaveCount(3);
   expect(await page.locator("#ai-models option").evaluateAll((o) => o.map((x) => (x as HTMLOptionElement).value))).toEqual(["claude-code", "gpt-a", "llama-3"]);

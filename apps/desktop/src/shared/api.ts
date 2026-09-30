@@ -22,7 +22,21 @@ export type MenuAction =
   | "subtract"
   | "intersect"
   | "exclude"
-  | "simplify";
+  | "simplify"
+  | "undo"
+  | "redo"
+  | "toggleMode"
+  | "commandPalette"
+  | "settings"
+  | "startScreen";
+
+export interface RecentFile {
+  id: number;
+  name: string;
+  /** Containing folder name, to tell same-named files apart. */
+  folder: string;
+  openedAt: number;
+}
 
 export interface SaveResult {
   saved: boolean;
@@ -39,6 +53,12 @@ export interface DesktopApi {
   setDirty(dirty: boolean): void;
   closeWindow(): void;
   onMenu(listener: (action: MenuAction) => void): void;
+  /** Recently opened files, newest first. Paths stay in the main process; the renderer gets names and ids. */
+  recentFiles(): Promise<RecentFile[]>;
+  /** Opens a recent file by id; null if it no longer exists. */
+  openRecent(id: number): Promise<{ name: string; text: string } | null>;
+  /** Colours of the window buttons drawn over the custom title bar. */
+  setTitleBarTheme(theme: "light" | "dark"): void;
   ai: AiApi;
 }
 

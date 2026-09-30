@@ -66,6 +66,7 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
     const original = readFileSync(path, "utf8");
     await open(path);
     expect(await title()).toBe(`${name} — SVG Editor`);
+    await page.locator("#tab-layers-button").click();
     await expect(page.locator(".layer-row").first()).toBeVisible();
     // Long names in the panels must not make the window itself scroll.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
@@ -83,6 +84,8 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
     expect(await title()).toMatch(/^• /);
 
     // Properties edit on the same element.
+    await page.locator("#tab-design-button").click();
+    await page.getByRole("button", { name: /All attributes/ }).click();
     await page.locator(".prop-add input").first().fill("data-edited");
     await page.locator(".prop-add input").nth(1).fill("yes");
     await page.locator(".prop-add button").click();
@@ -122,6 +125,7 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
 
 test("layers panel: drag to reorder is one move command and one undo", async () => {
   const original = await code();
+  await page.locator("#tab-layers-button").click();
   const rows = page.locator(".layer-row");
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0).locator(".layer-tag")).toHaveText("rect");
@@ -137,11 +141,12 @@ test("layers panel: drag to reorder is one move command and one undo", async () 
 test("properties panel edits and removes attributes as commands", async () => {
   const original = await code();
   await page.locator("#canvas svg > circle").click();
-  const fill = page.locator('#props input[data-field="attr:fill"]');
+  const fill = page.getByLabel("Fill value");
   await fill.fill("#ff0000");
   await fill.press("Enter");
   await expect(page.locator("#canvas svg > circle")).toHaveAttribute("fill", "#ff0000");
-  await page.locator('#props .prop-remove[title="Remove r"]').click();
+  await page.getByRole("button", { name: /All attributes/ }).click();
+  await page.getByRole("button", { name: "Remove r", exact: true }).click();
   await expect.poll(code).not.toMatch(/<circle[^>]* r="30"/);
   await page.locator("#canvas").focus();
   await page.keyboard.press("Control+z");
@@ -188,7 +193,7 @@ test("zoom, grid and snapping", async () => {
   await expect(page.locator('[data-view="snap"]')).toHaveAttribute("aria-pressed", "true");
 
   const step = await editor((e) => e.viewport.gridStep());
-  await page.locator('.toolbar [data-tool="rect"]').click();
+  await page.locator('button[data-tool="rect"]').click();
   const box = (await page.locator("#canvas svg").boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.53, box.y + box.height * 0.61);
   await page.mouse.down();
@@ -226,11 +231,14 @@ test("a file that does not parse opens in the code pane with the error marked", 
 test("new document asks before discarding unsaved changes", async () => {
   await page.locator("#canvas svg > rect").click();
   await page.keyboard.press("Delete");
-  page.once("dialog", (d) => void d.dismiss());
+  // Wait for each prompt: the menu action returns before the dialog opens.
+  let prompt = page.waitForEvent("dialog");
   await menu("new");
+  await (await prompt).dismiss();
   await expect(page.locator("#canvas svg > circle")).toHaveCount(1); // kept
-  page.once("dialog", (d) => void d.accept());
+  prompt = page.waitForEvent("dialog");
   await menu("new");
+  await (await prompt).accept();
   await expect(page.locator("#canvas svg > *")).toHaveCount(0);
   expect(await title()).toBe("Untitled.svg — SVG Editor");
 });

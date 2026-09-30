@@ -15,16 +15,24 @@ apps/
   desktop/  Electron app: code pane + live canvas                          (step 3)
 ```
 
-## AI side chat
+## Editor and agent modes
 
-The **AI** tab in the sidebar chats with a model that edits the drawing through the same SDK tools (add, set, delete, group, transform, align, …). Open **AI settings** to pick:
-- **API format:** Anthropic (Claude) or OpenAI-compatible (OpenAI, OpenRouter, Ollama, LM Studio, vLLM, …)
-- **Base URL:** empty for the provider's official endpoint
+The title bar switches between two views of the same drawing (Ctrl+E):
+- **Editor:** tool rail, code pane, canvas and an inspector with **Design** (position, fill, stroke, opacity, align, combine, all attributes) and **Layers** (reorder by dragging, show/hide).
+- **Agent:** a chat beside the canvas. Each turn lists the steps the agent took (with its snapshots), and **Undo this turn** / **Open in editor** follow a finished turn.
+
+**Ctrl+K** opens a command palette with every action; **Ctrl+,** opens Settings (AI model, theme, grid and snapping, the shortcut list). File > Open Recent and the start screen list recent files. The app follows the system light/dark theme unless one is picked, and animations are turned off when the system asks for reduced motion.
+
+### AI model
+
+Settings > **AI model** sets:
+- **Provider:** Anthropic (Claude) or OpenAI-compatible (OpenAI, OpenRouter, Ollama, LM Studio, vLLM, …)
+- **Endpoint:** empty for the provider's official endpoint
 - **Model** (default `claude-opus-5-5`): pick from the list the endpoint offers, or type any name
-- **Model can see images:** lets the AI take snapshots of the drawing to check its own work (turn off for text-only models; Test connection tells you)
+- **Model can see images:** lets the agent take snapshots of the drawing to check its own work (turn off for text-only models; Test connection tells you)
 - **Effort** and **API key**
 
-The key is encrypted with the OS keychain and never reaches the page; on Linux without a keyring it is kept in memory until the app quits. The editor is locked while the AI works, **Stop** discards the turn, and one Ctrl+Z undoes a finished turn. On the official Anthropic API with a supported model, server-side fallback is on: if the model declines a request, Anthropic retries it on another model.
+The key is encrypted with the OS keychain and never reaches the page; on Linux without a keyring it is kept in memory until the app quits. The editor is locked while the agent works, **Stop** discards the turn, and one Ctrl+Z undoes a finished turn. On the official Anthropic API with a supported model, server-side fallback is on: if the model declines a request, Anthropic retries it on another model.
 
 ## Download the app
 
