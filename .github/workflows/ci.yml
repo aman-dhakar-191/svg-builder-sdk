@@ -118,7 +118,14 @@ jobs:
           TAG: v${{ needs.version.outputs.version }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists; reusing it."
+            # A draft left by a failed run points at that run's commit; publishing it would
+            # tag the old code. Move it to this commit (a no-op when re-running the same one).
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+              gh release edit "$TAG" --target "$GITHUB_SHA"
+              echo "Draft $TAG reused, now targeting $GITHUB_SHA."
+            else
+              echo "Release $TAG exists; reusing it."
+            fi
           else
             gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "SVG Editor ${TAG#v}" --generate-notes \
               --notes "Installers are unsigned: on Windows choose \"More info\" → \"Run anyway\"; on macOS right-click the app → Open."
@@ -319,7 +326,17 @@ jobs:
           # latest*.yml and .blockmap files are the update feed (not builder-debug.yml).
           files=(*.AppImage *.exe *.dmg latest*.yml *.blockmap)
           echo "Attaching ${files[*]}"
-          gh release upload "$TAG" "${files[@]}" --clobber
+          # A just-created draft can be briefly invisible to the API ("release not
+          # found" on one runner while another attaches fine): wait for it, then retry.
+          for i in 1 2 3 4 5 6; do
+            gh release view "$TAG" >/dev/null 2>&1 && break
+            echo "Draft $TAG not visible yet; waiting ($i)"; sleep $((i * 5))
+          done
+          for i in 1 2 3; do
+            gh release upload "$TAG" "${files[@]}" --clobber && exit 0
+            echo "Upload attempt $i failed; retrying"; sleep $((i * 10))
+          done
+          exit 1
 
   # Publishes the draft once every installer is attached; this creates the tag.
   release:
