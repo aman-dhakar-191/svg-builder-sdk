@@ -108,6 +108,12 @@ export class CanvasController {
     return this.editor.getSelection();
   }
 
+  /** Abandons any gesture or text entry in progress (e.g. when the document gets locked). */
+  interrupt(): void {
+    this.cancelGesture();
+    this.closeText();
+  }
+
   /** Redraws selection outlines (after zoom or scroll). */
   refresh(): void {
     this.drawOverlay();

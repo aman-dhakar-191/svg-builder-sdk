@@ -121,6 +121,24 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
       expect(await ed.exportPng()).toEqual(new Uint8Array([1]));
     },
   },
+  {
+    ui: "AI turn / Debug > Simulate AI turn (editor locked)",
+    sdk: "editor.runLocked(options, fn) / editor.lock()",
+    run: async (ed) => {
+      await ed.runLocked({ reason: "ai" }, (s) => s.doc.add("circle"));
+      expect(ed.doc.query({ tag: "circle" })).toHaveLength(2);
+    },
+  },
+  {
+    ui: "Lock banner: Stop / Stop & keep changes",
+    sdk: "editor.stopLock({ keep })",
+    run: (ed) => {
+      const s = ed.lock({ reason: "ai" });
+      s.doc.add("ellipse");
+      expect(ed.stopLock({ keep: false })).toMatchObject({ kept: false, stopped: true });
+      expect(ed.text).toBe(SRC);
+    },
+  },
 ];
 
 /** UI features that change only the view, not the document. Nothing to expose in the SDK. */
@@ -146,6 +164,7 @@ const MAPPED: Record<string, string> = {
   ellipse: "Rect / ellipse / line tools",
   line: "Rect / ellipse / line tools",
   text: "Text tool",
+  simulateAiTurn: "AI turn / Debug > Simulate AI turn (editor locked)",
 };
 
 describe("UI cannot bypass the SDK", () => {
@@ -160,6 +179,12 @@ describe("UI cannot bypass the SDK", () => {
 
   it("main and preload do not touch documents", () => {
     for (const f of ["main/index.ts", "preload/index.ts"]) expect(read(f)).not.toMatch(/@svg-editor\//);
+    // The AI half in main only needs the tool definitions and prompt; tools run in the renderer through the SDK.
+    for (const f of readdirSync(new URL("main/ai/", app))) {
+      const imports = [...read(`main/ai/${f}`).matchAll(/from\s+"(@svg-editor\/[^"]+)"/g)].map((m) => m[1]);
+      expect(imports.every((i) => i === "@svg-editor/ai-tools"), `main/ai/${f} imports ${imports.join(", ")}`).toBe(true);
+      expect(read(`main/ai/${f}`)).not.toMatch(/\bdispatch\b/);
+    }
   });
 });
 

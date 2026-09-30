@@ -8,7 +8,7 @@ import {
   transformBBox,
   type BBox,
   type Command,
-  type CommandResult,
+  type CommandError,
   type CommandResultMap,
   type Matrix,
   type NodeData,
@@ -19,7 +19,8 @@ import {
   type Vec2,
 } from "@svg-editor/model";
 import { openSvg, type SourceDocument, type TextEdit } from "@svg-editor/parser";
-import { SvgEditorError } from "./errors.js";
+import { SvgEditorError, type SdkErrorCode } from "./errors.js";
+import { newAbortController, startTimer, stopTimer, type AbortSignalLike } from "./platform.js";
 
 /** Attribute values: numbers are written with at most 6 decimals. `null` removes (in `set`). */
 export type AttrValue = string | number;
@@ -66,6 +67,33 @@ export interface TextChangeEvent {
   origin: "code" | "model";
 }
 
+/** Result of the non-throwing `execute()`: like the model's, but with SDK error codes (e.g. LOCKED). */
+export type ExecuteResult<T = unknown> =
+  | { ok: true; result: T }
+  | { ok: false; error: { code: SdkErrorCode; message: string; hint: string; path?: number[] | undefined } };
+
+export interface LockOptions {
+  /** Who holds the lock, e.g. "ai". Shown in errors. */
+  reason: string;
+  /** Text for a banner, e.g. "AI is editing…". */
+  label?: string;
+  /** Stops (and rolls back) automatically after this long. */
+  timeoutMs?: number;
+}
+
+export interface LockInfo {
+  reason: string;
+  label: string;
+  startedAt: number;
+}
+
+/** How a lock session ended. `changed` is false when nothing was modified. */
+export interface LockOutcome {
+  kept: boolean;
+  changed: boolean;
+  stopped: boolean;
+}
+
 export const EMPTY_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">\n</svg>\n`;
 
 /**
@@ -90,6 +118,16 @@ export class Editor {
   private selection: NodeId[] = [];
   private readonly selectionListeners = new Set<(ids: NodeId[]) => void>();
   private bridges: Bridges;
+  private lockState: {
+    token: object;
+    info: LockInfo;
+    tx: { commit(): void; rollback(): void };
+    controller: ReturnType<typeof newAbortController>;
+    timer?: unknown;
+    versionAtStart: number;
+    stopped: boolean;
+  } | null = null;
+  private readonly lockListeners = new Set<(info: LockInfo | null) => void>();
 
   /** @internal Use createEditor(). */
   constructor(
@@ -97,7 +135,7 @@ export class Editor {
     bridges: Bridges = {},
   ) {
     this.bridges = { rasterize: bridges.rasterize, measure: bridges.measure };
-    this.doc = new DocumentApi(this);
+    this.doc = new DocumentApi(this, null);
     // Keep the selection valid when nodes go away (delete, undo, code edits).
     source.onChange(() => {
       const kept = this.selection.filter((id) => this.source.doc.getNode(id));
@@ -128,6 +166,7 @@ export class Editor {
    * nothing if the text does not parse.
    */
   setText(text: string): { kept: number; created: number; removed: number } {
+    this.gate(null);
     const r = this.source.setText(text);
     if (!r.ok) throw SvgEditorError.fromParse(r.error);
     return { kept: r.kept, created: r.created, removed: r.removed };
@@ -155,11 +194,14 @@ export class Editor {
 
   // -------------------------------------------------------------- history
 
+  /** Throws LOCKED while the document is locked. */
   undo(): boolean {
+    this.gate(null);
     return this.model.undo();
   }
 
   redo(): boolean {
+    this.gate(null);
     return this.model.redo();
   }
 
@@ -186,11 +228,12 @@ export class Editor {
    * back and the error is rethrown.
    */
   batch<T>(fn: () => T): T {
-    return this.model.transaction(fn);
+    return this.transactionAs(null, fn);
   }
 
   /** Starts a batch that can span `await`s (e.g. a whole AI turn). Call commit() or rollback(). */
   beginBatch(): { commit(): void; rollback(): void } {
+    this.gate(null);
     return this.model.beginTransaction();
   }
 
@@ -199,10 +242,128 @@ export class Editor {
    * `{ ok: false, error: { code, message, hint } }`. This is the form the
    * AI tool dispatcher uses.
    */
-  execute<C extends Command>(cmd: C): CommandResult<CommandResultMap[C["op"]]>;
-  execute(cmd: unknown): CommandResult;
-  execute(cmd: unknown): CommandResult {
+  execute<C extends Command>(cmd: C): ExecuteResult<CommandResultMap[C["op"]]>;
+  execute(cmd: unknown): ExecuteResult;
+  execute(cmd: unknown): ExecuteResult {
+    return this.executeAs(null, cmd);
+  }
+
+  // ----------------------------------------------------------------- lock
+
+  /**
+   * Locks the document for one holder (e.g. an AI turn). Until the session
+   * ends, every write that does not go through the session throws LOCKED
+   * (reads and selection still work). The whole session is one undo step.
+   * End it with commit(), rollback() or stop(); prefer runLocked(), which
+   * always ends it.
+   */
+  lock(options: LockOptions): LockSession {
+    if (this.lockState) this.gate(null);
+    if (this.model.inTransaction) {
+      throw new SvgEditorError("LOCKED", "Cannot lock while a batch is in progress.", "Finish the current batch first.");
+    }
+    const token = {};
+    const info: LockInfo = { reason: options.reason, label: options.label ?? `${options.reason} is editing…`, startedAt: Date.now() };
+    const controller = newAbortController();
+    const tx = this.model.beginTransaction();
+    this.lockState = { token, info, tx, controller, versionAtStart: this.model.version, stopped: false };
+    const session = new LockSession(this, token, info, controller.signal);
+    if (options.timeoutMs !== undefined) {
+      this.lockState.timer = startTimer(() => session.stop({ keep: false }), options.timeoutMs);
+    }
+    this.emitLock();
+    return session;
+  }
+
+  /**
+   * Runs `fn` under a lock: commits if it finishes, rolls back if it throws,
+   * and unlocks in every case. If the session is stopped meanwhile (UI Stop
+   * button, timeout), `fn`'s later writes fail and this rejects with LOCK_STOPPED.
+   */
+  async runLocked<T>(options: LockOptions, fn: (session: LockSession) => Promise<T> | T): Promise<T> {
+    const session = this.lock(options);
+    try {
+      const value = await fn(session);
+      if (session.active) session.commit();
+      else if (session.stopped) throw stoppedError();
+      return value;
+    } catch (e) {
+      if (session.active) session.rollback();
+      if (session.stopped && !(e instanceof SvgEditorError && e.code === "LOCK_STOPPED")) throw stoppedError();
+      throw e;
+    } finally {
+      if (session.active) session.rollback();
+    }
+  }
+
+  /** The current lock, or null. */
+  get lockInfo(): LockInfo | null {
+    return this.lockState ? { ...this.lockState.info } : null;
+  }
+
+  /** Called when the document is locked (info) or unlocked (null). */
+  onLockChange(listener: (info: LockInfo | null) => void): () => void {
+    this.lockListeners.add(listener);
+    return () => this.lockListeners.delete(listener);
+  }
+
+  /** Stops the current lock session, whoever holds it (the UI's Stop button). */
+  stopLock(options: { keep?: boolean } = {}): LockOutcome | null {
+    const l = this.lockState;
+    return l ? this.release(l.token, options.keep ?? false, true) : null;
+  }
+
+  /** @internal Throws unless `token` may write now. */
+  gate(token: object | null): void {
+    const l = this.lockState;
+    if (token !== null && (!l || l.token !== token)) {
+      throw new SvgEditorError("LOCK_RELEASED", "This lock session has already ended; its changes were committed or rolled back.", "Start a new session with editor.lock().");
+    }
+    if (l && token !== l.token) {
+      throw new SvgEditorError("LOCKED", `The document is locked: ${l.info.label}`, "Wait until it finishes, or stop it (Stop button / editor.stopLock()).");
+    }
+  }
+
+  /** @internal */
+  executeAs(token: object | null, cmd: unknown): ExecuteResult {
+    try {
+      this.gate(token);
+    } catch (e) {
+      const err = e as SvgEditorError;
+      return { ok: false, error: { code: err.code, message: err.message, hint: err.hint } };
+    }
     return this.model.execute(cmd);
+  }
+
+  /** @internal */
+  transactionAs<T>(token: object | null, fn: () => T): T {
+    this.gate(token);
+    return this.model.transaction(fn);
+  }
+
+  /** @internal Ends a session; idempotent. Always unlocks. */
+  release(token: object, keep: boolean, stopped: boolean): LockOutcome | null {
+    const l = this.lockState;
+    if (!l || l.token !== token) return null;
+    if (l.timer !== undefined) stopTimer(l.timer);
+    if (stopped) {
+      l.stopped = true;
+      l.controller.abort(new SvgEditorError("LOCK_STOPPED", "The lock session was stopped.", "Stop requested by the user or a timeout."));
+    }
+    const changed = this.model.version !== l.versionAtStart;
+    try {
+      if (keep) l.tx.commit();
+      else l.tx.rollback();
+    } finally {
+      this.lockState = null;
+      this.emitLock();
+    }
+    return { kept: keep && changed, changed, stopped };
+  }
+
+  private emitLock(): void {
+    const info = this.lockInfo;
+    for (const l of this.lockListeners) l(info);
   }
 
   // ------------------------------------------------------------ selection
@@ -294,15 +455,19 @@ export class Editor {
 
 /** Document commands and queries. Write methods throw SvgEditorError; they never half-apply. */
 export class DocumentApi {
-  constructor(private readonly editor: Editor) {}
+  constructor(
+    private readonly editor: Editor,
+    /** null: the editor's own API; otherwise a lock session's token. */
+    private readonly token: object | null,
+  ) {}
 
   private get m() {
     return this.editor.model;
   }
 
   private run<C extends Command>(cmd: C): CommandResultMap[C["op"]] {
-    const r = this.m.execute(cmd);
-    if (!r.ok) throw SvgEditorError.fromCommand(r.error);
+    const r = this.editor.executeAs(this.token, cmd);
+    if (!r.ok) throw r.error.code === "LOCKED" || r.error.code === "LOCK_RELEASED" ? new SvgEditorError(r.error.code, r.error.message, r.error.hint) : SvgEditorError.fromCommand(r.error as CommandError);
     return r.result as CommandResultMap[C["op"]];
   }
 
@@ -365,7 +530,7 @@ export class DocumentApi {
 
   /** Adds a <text> element with content in one undo step; returns its ID. */
   addText(text: string, attrs: Record<string, AttrValue> = {}, at: { parent?: NodeId; index?: number } = {}): NodeId {
-    return this.editor.batch(() => {
+    return this.editor.transactionAs(this.token, () => {
       const id = this.add("text", attrs, at);
       this.setText(id, text);
       return id;
@@ -449,6 +614,22 @@ export class DocumentApi {
     return m;
   }
 
+  /**
+   * Moves an element by (dx, dy) in root user units, converting through its
+   * ancestors' transforms (for align / distribute on nested elements).
+   */
+  translateInRoot(id: NodeId, [dx, dy]: Vec2): string {
+    const parent = this.getNode(id).parent;
+    const m = parent && parent !== this.root ? this.toRootMatrix(parent) : IDENTITY;
+    const det = m[0] * m[3] - m[1] * m[2];
+    if (Math.abs(det) < 1e-12) {
+      throw new SvgEditorError("INVALID_TRANSFORM", `An ancestor of "${id}" collapses it (scale 0), so it cannot be moved in root units.`, "Fix the ancestor's transform first.");
+    }
+    const px = (m[3] * dx - m[2] * dy) / det;
+    const py = (-m[1] * dx + m[0] * dy) / det;
+    return this.transform(id, { translate: [px, py] });
+  }
+
   /** Maps a point from an element's user space to root user space. */
   pointToRoot(id: NodeId, p: Vec2): Vec2 {
     return applyToPoint(this.toRootMatrix(id), p);
@@ -470,4 +651,74 @@ function toString(v: AttrValue): string {
 
 function toStrings(attrs: Record<string, AttrValue>): Record<string, string> {
   return Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, toString(v)]));
+}
+
+function stoppedError(): SvgEditorError {
+  return new SvgEditorError("LOCK_STOPPED", "The lock session was stopped before it finished; its changes were rolled back unless kept.", "Check session.signal.aborted in long-running work and return early.");
+}
+
+/**
+ * A lock session: the only writer while it lasts. `doc` and `execute` work
+ * like the editor's; after the session ends they throw LOCK_RELEASED.
+ */
+export class LockSession {
+  readonly doc: DocumentApi;
+
+  /** @internal Use editor.lock() or editor.runLocked(). */
+  constructor(
+    private readonly editor: Editor,
+    private readonly token: object,
+    readonly info: LockInfo,
+    /** Aborted when the session is stopped (pass it to fetch() so the request is cancelled too). */
+    readonly signal: AbortSignalLike,
+  ) {
+    this.doc = new DocumentApi(editor, token);
+  }
+
+  get active(): boolean {
+    return this.editor.lockInfo !== null && this.editorToken() === this.token;
+  }
+
+  get stopped(): boolean {
+    return this.signal.aborted;
+  }
+
+  execute(cmd: unknown): ExecuteResult {
+    return this.editor.executeAs(this.token, cmd);
+  }
+
+  /** Several changes inside the session, rolled back together if `fn` throws. */
+  batch<T>(fn: () => T): T {
+    return this.editor.transactionAs(this.token, fn);
+  }
+
+  /** Keeps the changes (one undo step) and unlocks. */
+  commit(): LockOutcome {
+    return this.end(true, false);
+  }
+
+  /** Discards the changes and unlocks. */
+  rollback(): LockOutcome {
+    return this.end(false, false);
+  }
+
+  /** Aborts `signal`, then discards (default) or keeps the partial work, and unlocks. */
+  stop(options: { keep?: boolean } = {}): LockOutcome {
+    return this.end(options.keep ?? false, true);
+  }
+
+  private end(keep: boolean, stopped: boolean): LockOutcome {
+    const r = this.editor.release(this.token, keep, stopped);
+    if (!r) throw new SvgEditorError("LOCK_RELEASED", "This lock session has already ended.", "Start a new session with editor.lock().");
+    return r;
+  }
+
+  private editorToken(): object | null {
+    try {
+      this.editor.gate(this.token);
+      return this.token;
+    } catch {
+      return null;
+    }
+  }
 }

@@ -6,7 +6,10 @@ export type SdkErrorCode =
   | ErrorCode
   | "PARSE_ERROR"
   | "NO_RASTERIZER"
-  | "EXPORT_FAILED";
+  | "EXPORT_FAILED"
+  | "LOCKED"
+  | "LOCK_RELEASED"
+  | "LOCK_STOPPED";
 
 /**
  * The one error type the SDK throws. `code` is stable and meant for programs

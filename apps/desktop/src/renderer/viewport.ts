@@ -133,14 +133,28 @@ export class Viewport {
     this.setZoom(this._zoom * Math.exp(-e.deltaY * 0.002), { x: e.clientX, y: e.clientY });
   }
 
+  /**
+   * Redraws the layer above the drawing: a dimming mask outside the page (the
+   * drawing shows overflow so off-page shapes stay visible and grabbable, but
+   * export crops to the page) and, when on, the grid.
+   */
   drawGrid(): void {
     const g = this.gridLayer;
     g.replaceChildren();
     const svg = this.svg();
-    if (!this._grid || !svg) return;
+    if (!svg) return;
+    const origin = g.getBoundingClientRect();
+    const page = svg.getBoundingClientRect();
+    const mask = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const px = page.left - origin.left;
+    const py = page.top - origin.top;
+    mask.setAttribute("d", `M0 0H${origin.width}V${origin.height}H0Z M${px} ${py}h${page.width}v${page.height}h${-page.width}Z`);
+    mask.setAttribute("fill-rule", "evenodd");
+    mask.setAttribute("class", "off-page");
+    g.appendChild(mask);
+    if (!this._grid) return;
     const ctm = svg.getScreenCTM();
     if (!ctm) return;
-    const origin = g.getBoundingClientRect();
     const step = this.gridStep();
     const { width, height } = this.intrinsicSize();
     const vb = svg.viewBox.baseVal;

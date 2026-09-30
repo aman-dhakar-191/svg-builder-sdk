@@ -1,6 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { registerAiIpc } from "./ai/index.js";
+
+// Tests point userData at a temp dir so settings never touch the real profile.
+if (process.env.SVG_EDITOR_USER_DATA) app.setPath("userData", process.env.SVG_EDITOR_USER_DATA);
 
 /**
  * Per-window file state lives here, not in the renderer: the renderer never
@@ -134,6 +138,10 @@ function buildMenu(): void {
       { role: "toggleDevTools" },
     ],
   };
+  const debug: MenuItemConstructorOptions = {
+    label: "Debug",
+    submenu: [{ label: "Simulate AI Turn (tests the editor lock)", click: send("simulateAiTurn") }],
+  };
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === "darwin" ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
@@ -141,6 +149,7 @@ function buildMenu(): void {
       // Undo/redo belong to the document model, handled in the renderer.
       { label: "Edit", submenu: [{ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
       view,
+      debug,
       { role: "windowMenu" },
     ]),
   );
@@ -199,6 +208,7 @@ app.on("web-contents-created", (_e, contents) => {
 });
 
 void app.whenReady().then(() => {
+  registerAiIpc();
   buildMenu();
   createWindow();
   app.on("activate", () => {

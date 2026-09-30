@@ -82,3 +82,43 @@
 | Renderer bridges | `rasterize` (PNG export) and `measure` (bounding boxes of paths and text) are injected; the desktop app provides DOM implementations. | Keeps the SDK pure TS. Headless PNG export would need a rasterizer library (e.g. resvg), which needs your approval. |
 | Exit test | The app uses only the SDK for documents; `ui-parity.test.ts` checks the renderer's imports, runs an SDK equivalent for every UI action, and fails if a menu action or tool is added without an SDK mapping or a view-only mark. | View-only: zoom, pan, grid, snapping, tool choice. |
 | Headless example | `examples/bar-chart.ts` builds a chart from data; CI runs it under plain Node against the built packages. | |
+
+## Build and distribution
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Installers | Built only in GitHub Actions (`package` job, one runner per OS) with electron-builder: NSIS `.exe`, `.dmg` for arm64 and x64, `.AppImage`. Each packaged app is launched in a smoke test before its installer is uploaded as a workflow artifact. | Your rule: builds and executables come from Actions, not local machines. |
+| Signing | Unsigned. Windows SmartScreen and macOS Gatekeeper warn on first launch. | Add certificates as repository secrets when you want signed builds; a tagged-release workflow can then publish installers to GitHub Releases. |
+| Packaged contents | Only `out/` (bundled by electron-vite) and `package.json`; no `node_modules`. | Main and preload need only Electron and Node built-ins; the renderer is fully bundled. |
+
+## Phase 2, step 1: editor lock
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Enforcement | In the SDK. `editor.lock()` hands out a session with its own `doc`; every other write path (commands, `setText`, undo/redo, `batch`) throws `LOCKED`, and `execute()` returns it as an error. Reads and selection stay open. | Plan section 9: enforce in the SDK, not just the UI. |
+| One turn = one undo step | The session is one outer transaction. Nothing changed means no history entry. | |
+| Stop | Rolls back by default; "Stop & keep changes" commits the partial turn. Stop aborts the session's `AbortSignal` (for cancelling the model request) and unlocks immediately, without waiting for the holder. | Plan: rollback by default, keep partial as an option. |
+| No stuck locks | `runLocked` always ends the session (finally); a finished session cannot write again (`LOCK_RELEASED`); optional `timeoutMs` stops automatically; the UI can always stop (`stopLock`). | "A stuck lock is a worse bug than a bad AI edit." |
+| UI while locked | Banner with Stop / Stop & keep; canvas and panels `inert`; code pane read-only but updating live; drawing tools, undo/redo, New/Open/Save refused with a message. Zoom and scrolling of the code still work. | |
+| Testing without AI | Debug > Simulate AI Turn makes timed edits under `runLocked`; e2e tests cover lock, Stop, Stop & keep, and single-step undo. | Plan: implement and test lock/unlock/Stop independently of any AI. |
+
+## Phase 2, step 2: AI side chat
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Split | Main process: key, conversation, provider calls. Renderer: runs each tool call through `@svg-editor/ai-tools` → SDK inside the turn's lock session. Tool calls cross IPC (`ai:toolCall` / `ai:toolResult`, 30 s timeout). | Key never in the renderer (plan); the renderer owns the editor, so tools stay SDK calls. `ui-parity.test.ts` checks `main/ai` imports only tool definitions, never the dispatcher. |
+| Tools | 14 hand-written, high-level tools in `packages/ai-tools` (get_document, query, get_element, add_elements with `$N` parents, set_attributes, delete, move, group, ungroup, transform, set_text, align, distribute, select). Every input is validated against its JSON Schema before the SDK runs; every failure returns `{ code, message, hint }`. | Plan said "generated from the SDK"; the SDK has no runtime schemas, so they are written once and a test checks each has a handler. `add_elements` is all-or-nothing. |
+| Providers | `anthropic`: official `@anthropic-ai/sdk`, streaming (`beta.messages.stream` + `finalMessage`). `openai-compatible`: plain `fetch` to `{base}/chat/completions`, non-streaming, key optional (local servers). | New dependency: `@anthropic-ai/sdk` (desktop devDependency, bundled into main). Revisit if we want streaming for OpenAI-compatible servers. |
+| Anthropic request | Model default `claude-opus-5-5`; no `thinking` param (model default); `effort` sent only when set; `tool_choice` auto; tool loop capped at 30 rounds; refusal / `max_tokens` / `pause_turn` handled before running tools. On the official endpoint only: `eager_input_streaming` on tools (inputs are validated anyway) and `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) for claude-opus-5-5, opus-5, fable-5-1, sonnet-5-5. The settings panel says when fallback is on. | Proxies and gateways may reject beta-only fields, so a custom base URL gets none. |
+| Turn outcome | Only a finished turn is kept: Stop, error, refusal and the round limit roll back the drawing, and the main process truncates the conversation to before the turn so the model does not remember discarded edits. "Stop & keep changes" keeps the drawing but still drops the turn from the conversation (the model can re-read the drawing). | Plan: whole turn = one undo step, Stop rolls back. |
+| Stop | The lock session's `AbortSignal` sends `ai:stop`; the main process aborts the HTTP request and answers pending tool calls with `STOPPED`. | e2e checks the mock server sees the connection closed. |
+| Key storage | `safeStorage` (keychain / DPAPI / libsecret), base64 in `userData/ai-settings.json` (mode 0600). Linux `basic_text` counts as insecure: key kept in memory only, and the UI says so. Settings input is re-validated in main. | |
+| Conversation | Per window; reset when format, base URL or model change (histories are not portable between providers); "New chat" resets it. | |
+| Tests | Unit: `packages/ai-tools` (schemas, validator, every tool, house acceptance through a lock session). e2e: scripted mock Anthropic SSE server and mock Chat Completions server (`e2e/mock-ai.ts`) drive the real provider code — house with a red door (both formats), lock during the run, single Ctrl+Z, tool errors fed back, Stop cancels the request, API errors roll back, test connection, key never returned or stored in plain text. | No real API calls in CI. |
+
+## Canvas: page edge and off-page content
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Page | The rendered `<svg>` is drawn as a page: checkerboard (transparency) inside, outlined, on a plain desk colour. | Users could not see where the drawing ends; shapes dragged past it looked cut off. |
+| Off-page shapes | Shown (`overflow: visible`) and still selectable, but dimmed by a mask outside the page. Export and the saved file are unchanged: SVG crops to the viewBox. | Same model as Inkscape/Figma. Revisit: content far off-page is not in the scroll area; a "fit to content" zoom may be needed. |

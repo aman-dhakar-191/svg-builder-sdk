@@ -245,3 +245,16 @@ describe("geometry and bridges", () => {
     await expect(ed.exportPng()).rejects.toMatchObject({ code: "EXPORT_FAILED" });
   });
 });
+
+describe("translateInRoot", () => {
+  it("moves nested elements by root units through scaled/rotated parents", () => {
+    const ed = createEditor();
+    const g = ed.doc.add("g", { transform: "scale(2) rotate(90)" });
+    const r = ed.doc.add("rect", { width: 10, height: 10 }, { parent: g });
+    const before = ed.doc.getBBox(r, "root");
+    ed.doc.translateInRoot(r, [6, 4]);
+    const after = ed.doc.getBBox(r, "root");
+    expect(after.x - before.x).toBeCloseTo(6);
+    expect(after.y - before.y).toBeCloseTo(4);
+  });
+});

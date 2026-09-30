@@ -6,7 +6,10 @@
     "types": [
       "node"
     ],
-    "noEmit": true
+    "noEmit": true,
+    "customConditions": [
+      "source"
+    ]
   },
   "include": [
     "src/main",
