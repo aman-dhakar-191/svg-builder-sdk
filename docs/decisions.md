@@ -222,3 +222,12 @@
 | Trust | Downloads are checked against the SHA-512 in the feed. Installers are not code-signed, so what users install is whatever the repository's releases hold: protect the GitHub account (2FA). | |
 | Tests | e2e with a local feed (`SVG_EDITOR_UPDATE_URL`, test only; it checks but does not download): a newer version is reported, the same version is "latest", a development build says updates need the installed app, the automatic check can be turned off. Not tested automatically: downloading and installing a real release; that needs two published releases. | |
 
+## Performance (large files)
+
+Measured with the SDK (paths, one attribute each changed, Node 22): opening and every command scale linearly, about 0.1 s at 20,000 elements (1.9 MB). A code edit did not.
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Code edits | `reconcile` (keeping IDs across a code edit) aligned every old child with every new child, rebuilding attribute sets per pair, with an n x m table: 1.1 s at 1,000 siblings, 29 s at 5,000, 8 min at 20,000. Now identical runs at the start and end of each child list match directly (an edit usually changes one spot); only the changed middle is aligned for best similarity, with attributes computed once per node; above 250,000 pairs the middle is matched in order by tag (IDs may reset where tags differ, as the plan accepts for big rewrites). The breadth-first queue no longer uses `shift()`. Result: 20 ms at 1,000, 0.1 s at 5,000, 0.66 s at 20,000. A test holds 5,000 siblings under 2 s. | Plan risk 5: "test a large file early". |
+| App side | At 5,000 elements one change costs about 180 ms in the app: the full canvas rebuild about 80 ms, Svelte updates (5,000 layer rows) about 80 ms. | Next if large files matter: virtualize the Layers list, then patch the canvas per mutation instead of rebuilding it. |
+

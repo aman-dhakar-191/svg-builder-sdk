@@ -89,4 +89,35 @@ describe("reconcile", () => {
     expect(r.kept).toBe(1);
     expect(r.created).toBe(2);
   });
+
+  it("large files: an edit in the middle keeps every other ID, and stays fast", () => {
+    const n = 5000;
+    const rows = Array.from({ length: n }, (_, i) => `  <path d="M${i} 0 L${i % 7} 9" fill="#${String(i % 999).padStart(6, "0")}"/>`);
+    const big = `<svg>\n${rows.join("\n")}\n</svg>`;
+    const doc = open(big).doc;
+    const oldIds = doc.getTree()!.children.map((c) => c.id);
+    // Change one path, insert one and delete one, all in the middle.
+    const edited = [...rows];
+    edited[2000] = edited[2000]!.replace('fill="', 'stroke="red" fill="');
+    edited.splice(3000, 1);
+    edited.splice(2500, 0, '  <circle r="4"/>');
+    const t = performance.now();
+    const r = reconcile(doc, parse(`<svg>\n${edited.join("\n")}\n</svg>`));
+    expect(performance.now() - t).toBeLessThan(2000); // was minutes: the alignment compared every pair
+    const newIds = r.tree.children.map((c) => c.id);
+    expect(r.created).toBe(1); // only the circle
+    expect(r.removed).toEqual([oldIds[3000]]);
+    expect(newIds[2000]).toBe(oldIds[2000]); // the edited path kept its ID
+    expect(newIds[2500]).toBeUndefined();
+    expect(newIds[n - 1]).toBe(oldIds[n - 1]);
+  });
+
+  it("a huge rewrite still matches in order by tag (IDs may reset where tags differ)", () => {
+    const n = 800;
+    const a = `<svg>${Array.from({ length: n }, (_, i) => `<rect x="${i}"/>`).join("")}</svg>`;
+    const b = `<svg>${Array.from({ length: n }, (_, i) => `<rect y="${i}"/>`).join("")}</svg>`; // every attribute changed
+    const doc = open(a).doc;
+    const r = reconcile(doc, parse(b));
+    expect(r.kept).toBe(n + 1); // same tags in the same order: all kept
+  });
 });
