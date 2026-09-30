@@ -178,6 +178,50 @@ jobs:
           echo "Testing $APP"
           PACKAGED_APP="$APP" $RUN pnpm exec playwright test e2e/packaged.spec.ts
 
+      # Windows: the wizard, clicked through with a screenshot per page (best effort:
+      # UI automation on a CI desktop can be flaky), then a strict silent
+      # install -> run -> uninstall check.
+      - name: Installer wizard (screenshots)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem apps/desktop/release/*.exe).FullName
+          & .github/scripts/installer-wizard.ps1 -Installer $exe -OutDir "$env:RUNNER_TEMP\wizard"
+          $u = "C:\Program Files\SVG Editor\Uninstall SVG Editor.exe"
+          if (Test-Path $u) { Start-Process $u -ArgumentList "/S" -Wait }
+          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\SVG Editor\svg-editor.exe"); $i++) { Start-Sleep 1 }
+
+      - name: Upload wizard screenshots
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-wizard-screenshots
+          path: ${{ runner.temp }}/wizard
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Silent install, run, uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $dir = "C:\Program Files\SVG Editor"
+          $exe = (Get-ChildItem release/*.exe).FullName
+          Start-Process $exe -ArgumentList "/S" -Wait
+          $app = "$dir\svg-editor.exe"
+          $links = @("$env:PUBLIC\Desktop\SVG Editor.lnk", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\SVG Editor.lnk")
+          if (-not (Test-Path $app)) { throw "not installed to $dir" }
+          foreach ($l in $links) { if (-not (Test-Path $l)) { throw "missing shortcut $l" } }
+          $env:PACKAGED_APP = $app
+          pnpm exec playwright test e2e/packaged.spec.ts
+          if ($LASTEXITCODE -ne 0) { throw "installed app failed its smoke test" }
+          Start-Process "$dir\Uninstall SVG Editor.exe" -ArgumentList "/S" -Wait
+          for ($i = 0; $i -lt 60 -and (Test-Path $app); $i++) { Start-Sleep 1 }
+          if (Test-Path $app) { throw "uninstall left $app" }
+          foreach ($l in $links) { if (Test-Path $l) { throw "uninstall left $l" } }
+          Write-Host "Installed to $dir, shortcuts created, app ran, uninstall removed everything."
+
       # archive: false uploads the installer itself (no zip); one file per upload.
       - name: Upload installer (Linux)
         if: runner.os == 'Linux'

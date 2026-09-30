@@ -21,8 +21,13 @@ linux:
 win:
   target: [nsis]
 nsis:
+  # Wizard: welcome, location, options, ready, install, finish (build/installer.nsh).
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # Installs to C:\Program Files\SVG Editor (asks for admin rights).
+  perMachine: true
+  include: build/installer.nsh
+  shortcutName: SVG Editor
 mac:
   # Apple silicon and Intel.
   target:
