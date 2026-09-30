@@ -21,7 +21,9 @@ The title bar switches between two views of the same drawing (Ctrl+E):
 - **Editor:** tool rail, code pane, canvas and an inspector with **Design** (position, fill, stroke, opacity, align, combine, all attributes) and **Layers** (reorder by dragging, show/hide).
 - **Agent:** a chat beside the canvas. Each turn lists the steps the agent took (with its snapshots), and **Undo this turn** / **Open in editor** follow a finished turn.
 
-**Ctrl+K** opens a command palette with every action; **Ctrl+,** opens Settings (AI model, theme, grid and snapping, the shortcut list). File > Open Recent and the start screen list recent files. The app follows the system light/dark theme unless one is picked, and animations are turned off when the system asks for reduced motion.
+Moving a shape snaps its edges and centres to other shapes and the page, with guide lines (Alt while dragging: off). Double-click a path to edit its points: double-click the outline to add one, Delete to remove it, double-click a point for corner / smooth.
+
+**Export…** (Ctrl+Shift+E) writes a PNG, a formatted SVG or a minified SVG copy. Pointing at markup in the code pane outlines its element on the canvas; Alt+drag on a number there changes it (Shift: 10x faster, Esc: cancel). **Ctrl+K** opens a command palette with every action; **Ctrl+,** opens Settings (AI model, theme, grid and snapping, the shortcut list). File > Open Recent and the start screen list recent files. The app follows the system light/dark theme unless one is picked, and animations are turned off when the system asks for reduced motion.
 
 ### AI model
 
@@ -45,6 +47,8 @@ Installers are built by GitHub Actions only, never locally. They are **unsigned*
 - `SVG-Editor-<version>-win-x64.exe`
 - `SVG-Editor-<version>-mac-arm64.dmg` (Apple silicon) and `…-mac-x64.dmg` (Intel)
 - `SVG-Editor-<version>-linux-x86_64.AppImage`
+
+**Updates (Windows and Linux AppImage):** the installed app checks the Releases page a few seconds after it starts, downloads a new version in the background and shows **Restart to update**; otherwise it installs when you quit. File > Check for Updates… checks now; Settings > Updates can turn the automatic check off. macOS builds do not update themselves (they are unsigned): download the new `.dmg` from Releases.
 
 **Test builds:** every other push builds the same installers as `<next>-dev.<run>` versions. Open the **Actions** tab, pick the CI run, and download them from **Artifacts** (each is the installer file itself, not a zip).
 

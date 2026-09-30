@@ -102,12 +102,15 @@ test("renderer has no Node access", async () => {
 
 test("the main process bundle needs only Electron and Node built-ins (no document model, no paper.js)", async () => {
   const { readdirSync, readFileSync } = await import("node:fs");
+  const { builtinModules } = await import("node:module");
   const dir = fileURLToPath(new URL("../out/main/", import.meta.url));
   const required = new Set<string>();
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".cjs"))) {
     for (const m of readFileSync(`${dir}/${f}`, "utf8").matchAll(/require\("([^"]+)"\)/g)) required.add(m[1]!);
   }
-  const bad = [...required].filter((r) => r !== "electron" && !r.startsWith("node:") && !r.startsWith("./"));
+  // The package has no node_modules: anything else (paper.js's canvas / jsdom shims, say) would fail at start.
+  const builtin = (r: string) => r.startsWith("node:") || builtinModules.includes(r);
+  const bad = [...required].filter((r) => r !== "electron" && !builtin(r) && !r.startsWith("./"));
   expect(bad).toEqual([]);
 });
 
@@ -140,4 +143,61 @@ test("reduced motion: dialogs and panels appear without animating", async () => 
   expect(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length)).toBe(0);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("pointing at markup in the code pane or at a layer outlines that element on the canvas", async () => {
+  const at = await page.evaluate(() => {
+    const { view } = (window as unknown as { editor: { view: import("@codemirror/view").EditorView } }).editor;
+    const c = view.coordsAtPos(view.state.doc.toString().indexOf("<circle") + 3)!;
+    return { x: c.left + 1, y: (c.top + c.bottom) / 2 };
+  });
+  await page.mouse.move(at.x, at.y);
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(1);
+  await expect(page.locator("#overlay .handle")).toHaveCount(0); // a hint, not a selection
+  await page.mouse.move(5, 300);
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(0);
+
+  await page.locator("#tab-layers-button").click();
+  await page.locator(".layer-row").first().hover();
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(1);
+  await page.locator(".layer-row").first().click(); // once selected, the selection outline takes over
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(0);
+});
+
+test("Alt+drag on a number in the code pane scrubs it: the canvas follows, one undo step, Esc cancels", async () => {
+  const original = await code();
+  // Screen position of the "80" in width="80".
+  const at = await page.evaluate(() => {
+    const { view } = (window as unknown as { editor: { view: import("@codemirror/view").EditorView } }).editor;
+    const c = view.coordsAtPos(view.state.doc.toString().indexOf('width="80"') + 8)!;
+    return { x: c.left, y: (c.top + c.bottom) / 2 };
+  });
+  const rect = page.locator("#canvas svg rect");
+  const scrub = async (dx: number, beforeUp: () => Promise<void>) => {
+    await page.mouse.move(at.x, at.y);
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    for (let i = 1; i <= 4; i++) await page.mouse.move(at.x + (dx * i) / 4, at.y);
+    await beforeUp();
+  };
+
+  // 20 px right = 10 steps of 1: the canvas shows it during the drag.
+  await scrub(20, async () => {
+    await expect(rect).toHaveAttribute("width", "90");
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+  });
+  await expect.poll(code).toBe(original.replace('width="80"', 'width="90"'));
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(original); // the whole drag was one step
+
+  // Esc during the drag puts everything back.
+  await scrub(-10, async () => {
+    await expect(rect).toHaveAttribute("width", "75");
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+  });
+  await expect.poll(code).toBe(original);
+  await expect(rect).toHaveAttribute("width", "80");
 });

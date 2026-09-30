@@ -1,4 +1,4 @@
-import { formatPath, movePathPoints, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathPoint, type PathSegment } from "@svg-editor/sdk";
+import { formatPath, movePathPoints, nearestOnPath, oppositeHandle, pointOnSegment, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "@svg-editor/sdk";
 import {
   angleBetween,
   anchorPoint,
@@ -24,6 +24,8 @@ export type Tool = "select" | "rect" | "ellipse" | "line" | "text";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DRAG_THRESHOLD = 3;
+/** How close (screen px) an edge or centre must come to another shape's to snap to it. */
+const SNAP_PX = 6;
 const ROTATE_OFFSET = 24;
 const DRAW_STYLE = { fill: "#93c5fd", stroke: "#1e3a8a", "stroke-width": "1" };
 
@@ -31,7 +33,7 @@ const DRAW_STYLE = { fill: "#93c5fd", stroke: "#1e3a8a", "stroke-width": "1" };
 const GRAPHIC = new Set(["g", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "image", "use", "svg", "foreignObject", "a", "switch"]);
 
 type Gesture =
-  | { kind: "move"; start: Point; items: Item[]; moved: boolean }
+  | { kind: "move"; start: Point; items: Item[]; moved: boolean; box?: Rect; targets?: Rect[] }
   | { kind: "resize"; handle: Handle; items: Item[]; box: Rect; local: boolean }
   | { kind: "rotate"; center: Point; start: Point; items: Item[] }
   | { kind: "marquee"; start: Point; additive: boolean; rect: SVGRectElement }
@@ -78,6 +80,16 @@ export class CanvasController {
   private nodeEdit: NodeId | null = null;
   /** Told when node editing starts or ends (for a status hint). */
   onNodeEdit: (editing: boolean) => void = () => {};
+  /** The selected point while editing nodes (its segment index), for Delete and node / segment types. */
+  private activeNode: number | null = null;
+  /** Told when the selected point changes: its index and whether it is smooth, or null. */
+  onActiveNode: (node: { seg: number; smooth: boolean; isStart: boolean } | null) => void = () => {};
+  /** Snap moved shapes to other shapes' and the page's edges and centres (with guide lines). */
+  snapShapes = true;
+  /** Guide lines of the current shape snap, in screen space. */
+  private guides: { x?: { at: number; from: number; to: number }; y?: { at: number; from: number; to: number } } | null = null;
+  /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
+  private hover: NodeId | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -87,6 +99,7 @@ export class CanvasController {
   ) {
     this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
     host.addEventListener("dblclick", (e) => this.doubleClick(e));
+    overlay.addEventListener("dblclick", (e) => this.doubleClick(e));
     host.addEventListener("keyup", (e) => {
       if (e.key === " ") this.spaceDown = false;
     });
@@ -137,6 +150,7 @@ export class CanvasController {
       return false; // unreadable path data
     }
     this.nodeEdit = id;
+    this.setActiveNode(null);
     if (this.selection.length !== 1 || this.selection[0] !== id) this.select([id]);
     this.onNodeEdit(true);
     this.drawOverlay();
@@ -146,6 +160,7 @@ export class CanvasController {
   exitNodeEdit(): void {
     if (this.nodeEdit === null) return;
     this.nodeEdit = null;
+    this.setActiveNode(null);
     this.onNodeEdit(false);
     this.drawOverlay();
   }
@@ -156,8 +171,83 @@ export class CanvasController {
     this.drawOverlay();
   }
 
+  private setActiveNode(seg: number | null): void {
+    this.activeNode = seg;
+    if (seg === null || this.nodeEdit === null) return this.onActiveNode(null);
+    const segs = this.editor.doc.getPath(this.nodeEdit);
+    this.onActiveNode({ seg, smooth: isSmooth(segs, seg), isStart: segs[seg]?.cmd === "M" });
+  }
+
+  /**
+   * Node-level change on the edited path: "delete", "corner"/"smooth" apply to the selected
+   * point, "line"/"curve" to the segment that ends at it. One undo step.
+   */
+  nodeAction(action: "delete" | "corner" | "smooth" | "line" | "curve"): void {
+    const id = this.nodeEdit;
+    const seg = this.activeNode;
+    if (id === null || seg === null) return;
+    const op: PathNodeOp =
+      action === "delete" ? { action, seg } : action === "corner" || action === "smooth" ? { action: "node", seg, type: action } : { action: "segment", seg, type: action };
+    const at = this.editor.doc.getPath(id)[seg];
+    const r = this.editor.execute({ op: "pathNode", id, ...op });
+    if (!r.ok) {
+      this.onNodeError(r.error.message);
+      return;
+    }
+    // Indices can shift (an arc becomes several curves); keep the same point selected.
+    this.setActiveNode(action === "delete" || !at || at.cmd === "Z" ? null : this.nodeAtPoint(id, at.p));
+    this.drawOverlay();
+  }
+  /** Told when a node action is refused (for the status bar). */
+  onNodeError: (message: string) => void = () => {};
+
+  private nodeAtPoint(id: NodeId, p: [number, number]): number | null {
+    const segs = this.editor.doc.getPath(id);
+    const i = segs.findIndex((s) => s.cmd !== "Z" && Math.abs(s.p[0] - p[0]) < 1e-6 && Math.abs(s.p[1] - p[1]) < 1e-6);
+    return i < 0 ? null : i;
+  }
+
+  /** The spot on the edited path's outline within 8 screen px of a pointer event, if any. */
+  private nearOutline(e: MouseEvent): { seg: number; t: number } | null {
+    const id = this.nodeEdit;
+    const ctm = id !== null ? this.elOf.get(id)?.getScreenCTM() : null;
+    if (id === null || !ctm) return null;
+    const m = mat(ctm);
+    const local = apply(invert(m), { x: e.clientX, y: e.clientY });
+    const hit = nearestOnPath(this.editor.doc.getPath(id), [local.x, local.y]);
+    if (!hit) return null;
+    const onScreen = apply(m, { x: hit.point[0], y: hit.point[1] });
+    return Math.hypot(onScreen.x - e.clientX, onScreen.y - e.clientY) <= 8 ? { seg: hit.seg, t: hit.t } : null;
+  }
+
   private doubleClick(e: MouseEvent): void {
     if (this._tool !== "select") return;
+    if (this.nodeEdit !== null) {
+      // On a point: toggle corner / smooth. On the outline: add a point there.
+      const ref = e.target instanceof Element ? e.target.getAttribute("data-node") : null;
+      if (ref?.endsWith(":p")) {
+        const seg = Number(ref.split(":")[0]);
+        this.setActiveNode(seg);
+        this.nodeAction(isSmooth(this.editor.doc.getPath(this.nodeEdit), seg) ? "corner" : "smooth");
+        return;
+      }
+      const spot = this.nearOutline(e);
+      if (spot && spot.t > 0.001 && spot.t < 0.999) {
+        const id = this.nodeEdit;
+        // Like a drag, the new point lands on 2 decimals (its handles follow; the outline moves < 0.005).
+        const at = pointOnSegment(this.editor.doc.getPath(id), spot.seg, spot.t);
+        const r = this.editor.execute({
+          op: "batch",
+          commands: [
+            { op: "pathNode", id, action: "insert", seg: spot.seg, t: spot.t },
+            { op: "pathEdit", id, moves: [{ seg: spot.seg, point: "p", to: [round(at[0]), round(at[1])] }] },
+          ],
+        });
+        if (r.ok) this.setActiveNode(spot.seg);
+        this.drawOverlay();
+        return;
+      }
+    }
     const hit = this.pick(e.target, true);
     if (hit && this.editor.doc.getNode(hit).tag === "path") this.editNodes(hit);
   }
@@ -205,7 +295,7 @@ export class CanvasController {
       nodes.push([i, end]);
       prev = end;
     });
-    for (const [i, p] of nodes) o.appendChild(svgEl("rect", { class: "handle node", "data-node": `${i}:p`, x: p.x - 4, y: p.y - 4, width: 8, height: 8 }));
+    for (const [i, p] of nodes) o.appendChild(svgEl("rect", { class: i === this.activeNode ? "handle node active" : "handle node", "data-node": `${i}:p`, x: p.x - 4, y: p.y - 4, width: 8, height: 8 }));
   }
 
   private startNodeDrag(ref: string): void {
@@ -214,6 +304,7 @@ export class CanvasController {
     const ctm = el?.getScreenCTM();
     if (!id || !el || !ctm) return;
     const [seg, point] = ref.split(":") as [string, PathPoint];
+    if (point === "p") this.setActiveNode(Number(seg));
     this.gesture = { kind: "node", id, el, segs: this.editor.doc.getPath(id), seg: Number(seg), point, inv: invert(mat(ctm)), original: el.getAttribute("d"), handles: true };
   }
 
@@ -268,6 +359,15 @@ export class CanvasController {
     };
     walk(svg);
     this.host.replaceChildren(svg);
+    // The document changed (an undo, a drag): refresh what the inspector shows for the selected point.
+    if (this.nodeEdit !== null && this.activeNode !== null) {
+      try {
+        const n = this.editor.doc.getPath(this.nodeEdit).length;
+        this.setActiveNode(this.activeNode < n ? this.activeNode : null);
+      } catch {
+        this.setActiveNode(null);
+      }
+    }
     this.drawOverlay();
   }
 
@@ -342,6 +442,22 @@ export class CanvasController {
 
   // ------------------------------------------------------------- overlay
 
+  /** Outlines `id` on the canvas as a hover hint; null clears it. */
+  setHover(id: NodeId | null): void {
+    if (id === this.hover) return;
+    this.hover = id;
+    this.drawOverlay();
+  }
+
+  private drawHover(o: SVGSVGElement, local: (p: Point) => Point): void {
+    const id = this.hover;
+    if (id === null || this.gesture || this.selection.includes(id) || !this.editor.doc.has(id)) return;
+    const item = this.itemFor(id);
+    if (!item) return;
+    const pts = this.screenCorners(item).map(local);
+    o.appendChild(svgEl("polygon", { class: "hover-outline", points: pts.map((p) => `${p.x},${p.y}`).join(" ") }));
+  }
+
   private drawOverlay(): void {
     const o = this.overlay;
     const origin = o.getBoundingClientRect();
@@ -352,6 +468,10 @@ export class CanvasController {
       this.drawNodes(o, local);
       return;
     }
+    this.drawHover(o, local);
+    const gd = this.guides;
+    if (gd?.x) { const a = local({ x: gd.x.at, y: gd.x.from }); const b = local({ x: gd.x.at, y: gd.x.to }); o.appendChild(svgEl("line", { class: "snap-guide", x1: a.x, y1: a.y - 8, x2: b.x, y2: b.y + 8 })); }
+    if (gd?.y) { const a = local({ x: gd.y.from, y: gd.y.at }); const b = local({ x: gd.y.to, y: gd.y.at }); o.appendChild(svgEl("line", { class: "snap-guide", x1: a.x - 8, y1: a.y, x2: b.x + 8, y2: b.y })); }
     const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
     if (items.length === 0 || this.gesture?.kind === "draw") return;
 
@@ -418,10 +538,13 @@ export class CanvasController {
       this.startDraw(this._tool, p);
       return;
     }
-    if (this.nodeEdit !== null && this.pick(e.target, true) !== this.nodeEdit) this.exitNodeEdit();
+    // Near the outline counts as on the path, so a double-click can add a point to a thin stroke.
+    if (this.nodeEdit !== null && this.pick(e.target, true) !== this.nodeEdit && !this.nearOutline(e)) this.exitNodeEdit();
     if (this.nodeEdit !== null) {
       e.preventDefault();
-      return; // clicks on the edited path itself do nothing; drag its points
+      this.setActiveNode(null);
+      this.drawOverlay();
+      return; // clicks on the edited path itself only clear the point selection; drag its points
     }
     const hit = this.pick(e.target, e.ctrlKey || e.metaKey);
     if (hit) {
@@ -476,6 +599,53 @@ export class CanvasController {
     return ctm ? applyLinear(mat(ctm), { x: to.x - from.x, y: to.y - from.y }) : d;
   }
 
+  /**
+   * Shape snapping for a move: the selection's left / centre / right (top / middle / bottom)
+   * within SNAP_PX of another shape's or the page's is pulled onto it, and a guide shows where.
+   * `only` limits it to one axis (Shift keeps a move straight).
+   */
+  private snapToShapes(g: Extract<Gesture, { kind: "move" }>, d: Point, only: "x" | "y" | null): Point {
+    if (!g.box) g.box = boundsOf(g.items.flatMap((i) => this.screenCorners(i)));
+    if (!g.targets) g.targets = this.snapTargets(g.items.map((i) => i.id));
+    const b = { x: g.box.x + d.x, y: g.box.y + d.y, width: g.box.width, height: g.box.height };
+    const best = (mine: number[], theirs: (r: Rect) => number[]) => {
+      let hit: { diff: number; at: number; r: Rect } | null = null;
+      for (const r of g.targets!) for (const t of theirs(r)) for (const m of mine) {
+        const diff = t - m;
+        if (Math.abs(diff) <= SNAP_PX && (!hit || Math.abs(diff) < Math.abs(hit.diff))) hit = { diff, at: t, r };
+      }
+      return hit;
+    };
+    const hx = only === "y" ? null : best([b.x, b.x + b.width / 2, b.x + b.width], (r) => [r.x, r.x + r.width / 2, r.x + r.width]);
+    const hy = only === "x" ? null : best([b.y, b.y + b.height / 2, b.y + b.height], (r) => [r.y, r.y + r.height / 2, r.y + r.height]);
+    const out = { x: d.x + (hx?.diff ?? 0), y: d.y + (hy?.diff ?? 0) };
+    const moved = { x: g.box.x + out.x, y: g.box.y + out.y };
+    this.guides = hx || hy ? {} : null;
+    if (hx) this.guides!.x = { at: hx.at, from: Math.min(moved.y, hx.r.y), to: Math.max(moved.y + b.height, hx.r.y + hx.r.height) };
+    if (hy) this.guides!.y = { at: hy.at, from: Math.min(moved.x, hy.r.x), to: Math.max(moved.x + b.width, hy.r.x + hy.r.width) };
+    return out;
+  }
+
+  /** Screen boxes of every shape a move can snap to (not the moved ones, their groups or contents), and the page. */
+  private snapTargets(moving: NodeId[]): Rect[] {
+    const doc = this.editor.doc;
+    const related = (id: NodeId) =>
+      moving.some((m) => {
+        for (let a: NodeId | null = m; a !== null; a = doc.getNode(a).parent ?? null) if (a === id) return true; // an ancestor
+        for (let a: NodeId | null = id; a !== null; a = doc.getNode(a).parent ?? null) if (a === m) return true; // inside it
+        return false;
+      });
+    const out: Rect[] = [];
+    for (const [id, el] of this.elOf) {
+      if (id === doc.root || !doc.has(id) || related(id)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 || r.height > 0) out.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+    }
+    const page = this.svg?.getBoundingClientRect();
+    if (page) out.push({ x: page.left, y: page.top, width: page.width, height: page.height });
+    return out;
+  }
+
   private toRoot(p: Point): Point {
     const ctm = this.svg?.getScreenCTM();
     return ctm ? apply(invert(mat(ctm)), p) : p;
@@ -507,6 +677,8 @@ export class CanvasController {
         g.moved = true;
         let constrained = e.shiftKey ? (Math.abs(d.x) > Math.abs(d.y) ? { x: d.x, y: 0 } : { x: 0, y: d.y }) : d;
         if (this.snapper.snapping) constrained = this.snapDelta(g.items, constrained);
+        if (this.snapShapes && !e.altKey) constrained = this.snapToShapes(g, constrained, e.shiftKey ? (constrained.x === 0 ? "y" : "x") : null);
+        else this.guides = null;
         for (const it of g.items) {
           const v = applyLinear(it.parentInv, constrained);
           const t: [number, number] = [round(v.x), round(v.y)];
@@ -568,6 +740,7 @@ export class CanvasController {
     const g = this.gesture;
     if (!g) return;
     this.gesture = null;
+    this.guides = null;
     switch (g.kind) {
       case "pan":
         return;
@@ -585,7 +758,7 @@ export class CanvasController {
       case "resize":
       case "rotate": {
         const cmds = g.items.map((i) => i.command).filter((c): c is Command => c !== undefined);
-        if (cmds.length === 0) return;
+        if (cmds.length === 0) return this.drawOverlay();
         this.run(cmds); // re-renders from the model
         return;
       }
@@ -623,6 +796,7 @@ export class CanvasController {
     const g = this.gesture;
     if (!g) return false;
     this.gesture = null;
+    this.guides = null;
     if (g.kind === "marquee") g.rect.remove();
     else if (g.kind === "draw") g.el.remove();
     else if (g.kind === "pan") return true;
@@ -698,7 +872,10 @@ export class CanvasController {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      if (this.nodeEdit !== null) return; // deleting single nodes is not supported yet; don't delete the path
+      if (this.nodeEdit !== null) {
+        this.nodeAction("delete"); // the selected point, never the whole path
+        return;
+      }
       this.deleteSelection();
       return;
     }
@@ -770,3 +947,10 @@ function drawAttrs(tool: "rect" | "ellipse" | "line", a: Point, b: Point, constr
   return { cx: round(r.x + r.width / 2), cy: round(r.y + r.height / 2), rx: round(r.width / 2), ry: round(r.height / 2) };
 }
 
+/** Whether the point at the end of segment `seg` has its two handles in line. */
+function isSmooth(segs: PathSegment[], seg: number): boolean {
+  const s = segs[seg];
+  if (s?.cmd === "C") return oppositeHandle(segs, seg, "c2") !== null;
+  const next = segs[seg + 1];
+  return next?.cmd === "C" ? oppositeHandle(segs, seg + 1, "c1") !== null : false;
+}

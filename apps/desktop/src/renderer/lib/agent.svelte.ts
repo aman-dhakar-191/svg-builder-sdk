@@ -125,7 +125,11 @@ class Agent {
       }
     } finally {
       t.endedAt = Date.now();
-      for (const s of t.steps) if (s.state === "running") s.state = "error";
+      for (const s of t.steps) {
+        if (s.state !== "running") continue;
+        s.state = "error";
+        s.error = "Did not finish: the turn ended first.";
+      }
       this.live = null;
     }
   }

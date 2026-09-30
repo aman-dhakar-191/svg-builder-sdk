@@ -215,6 +215,10 @@ describe("path tools", () => {
     ]);
     expect((await ok("edit_path", { id: p, moves: [{ seg: 2, point: "p", to: [40, 30] }] })).d).toBe("M10 10 L30 10 L40 30 L10 20 Z");
     expect((await err("edit_path", { id: p, moves: [{ seg: 1, point: "c1", to: [0, 0] }] })).code).toBe("INVALID_COMMAND");
+    expect((await ok("edit_path_nodes", { id: p, action: "insert", seg: 1, t: 0.5 })).d).toBe("M10 10 L20 10 L30 10 L40 30 L10 20 Z");
+    expect((await ok("edit_path_nodes", { id: p, action: "delete", seg: 1 })).d).toBe("M10 10 L30 10 L40 30 L10 20 Z");
+    expect((await ok("edit_path_nodes", { id: p, action: "segment", seg: 1, type: "curve" })).d).toMatch(/^M10 10 C/);
+    expect((await err("edit_path_nodes", { id: p, action: "node", seg: 1, type: "line" })).code).toBe("INVALID_COMMAND");
     expect((await err("convert_to_path", { ids: [editor.doc.query({ attr: { id: "sky" } })[0], "n_404"] })).code).toBe("NOT_FOUND");
     session.commit();
     editor.undo();

@@ -1,5 +1,6 @@
 <script lang="ts">
   import CodeXml from "@lucide/svelte/icons/code-xml";
+  import AlignCenterVertical from "@lucide/svelte/icons/align-center-vertical";
   import Grid3x3 from "@lucide/svelte/icons/grid-3x3";
   import Magnet from "@lucide/svelte/icons/magnet";
   import Maximize from "@lucide/svelte/icons/maximize";
@@ -43,6 +44,9 @@
     </Tip>
     <Tip text="Snap to grid" keys={formatKeys("Mod+Shift+'")} side="top">
       <button class="icon-btn" data-view="snap" aria-label="Snap to grid" aria-pressed={session.snap} onclick={() => session.viewport?.toggleSnap()}><Magnet size={16} /></button>
+    </Tip>
+    <Tip text="Snap to shapes (Alt while dragging: off)" side="top">
+      <button class="icon-btn" data-view="snapShapes" aria-label="Snap to shapes" aria-pressed={session.snapShapes} onclick={() => session.toggleSnapShapes()}><AlignCenterVertical size={16} /></button>
     </Tip>
   </div>
 

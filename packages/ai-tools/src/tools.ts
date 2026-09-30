@@ -123,6 +123,23 @@ export const TOOLS: ToolDefinition[] = [
     input_schema: { type: "object", properties: { ids: ids() }, required: ["ids"], additionalProperties: false },
   },
   {
+    name: "edit_path_nodes",
+    description:
+      'Changes the nodes of a <path> (a node is the end point of a segment from get_element "segments"). action "insert": adds a node on segment seg at t (0..1) without changing the outline. "delete": removes the node at the end of seg; its neighbours join. "node": type "corner" pulls its handles in (a sharp point), "smooth" lines them up (a smooth curve through it). "segment": type "line" straightens segment seg, "curve" makes it a cubic you can then bend with edit_path. Indices after the node shift; read the segments again before the next edit.',
+    input_schema: {
+      type: "object",
+      properties: {
+        id,
+        action: { type: "string", enum: ["insert", "delete", "node", "segment"] },
+        seg: { type: "integer" },
+        t: { type: "number", description: "insert only: where on the segment, between 0 and 1; 0.5 = middle." },
+        type: { type: "string", enum: ["corner", "smooth", "line", "curve"], description: 'node: "corner" or "smooth"; segment: "line" or "curve".' },
+      },
+      required: ["id", "action", "seg"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "edit_path",
     description:
       'Moves points of a <path>. Get its segments with get_element (field "segments": absolute M, L, C, Q, A, Z, indexed from 0). point: "p" = the segment\'s end point, "c1"/"c2" = control points of a C, "c" = control point of a Q. Coordinates are in the path\'s own units. Moving an end point also moves its handles unless keep_handles is false. To reshape a path completely, set its "d" with set_attributes instead.',

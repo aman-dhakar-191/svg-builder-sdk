@@ -122,6 +122,25 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
     },
   },
   {
+    ui: "Points: double-click the outline to add, Delete, Corner / Smooth, Straight line / Curve",
+    sdk: "doc.pathNode(id, { action, seg, ... })",
+    run: (ed) => {
+      const p = ed.doc.add("path", { d: "M0 0 L10 0 L10 10" });
+      expect(ed.doc.pathNode(p, { action: "insert", seg: 1, t: 0.5 })).toBe("M0 0 L5 0 L10 0 L10 10");
+      expect(ed.doc.pathNode(p, { action: "delete", seg: 1 })).toBe("M0 0 L10 0 L10 10");
+      expect(ed.doc.pathNode(p, { action: "node", seg: 1, type: "smooth" })).toMatch(/^M0 0 C/);
+      expect(ed.doc.pathNode(p, { action: "segment", seg: 1, type: "line" })).toMatch(/^M0 0 L10 0 C/);
+    },
+  },
+  {
+    ui: "Export SVG (formatted / minified)",
+    sdk: "editor.toSvg({ pretty })",
+    run: (ed) => {
+      expect(ed.toSvg({ pretty: true })).toContain("\n  <");
+      expect(ed.toSvg()).not.toMatch(/>\s+</);
+    },
+  },
+  {
     ui: "AI turn / Debug > Simulate AI turn (editor locked)",
     sdk: "editor.runLocked(options, fn) / editor.lock()",
     run: async (ed) => {
@@ -201,8 +220,11 @@ const VIEW_ONLY: Record<string, string> = {
   commandPalette: "opens a searchable list of the other actions",
   settings: "app settings (AI model, theme, grid)",
   startScreen: "opens the start screen; its actions are New and Open",
+  export: "opens the export dialog; its choices are Export PNG and Export SVG",
   toggleGrid: "grid display",
   toggleSnap: "snapping only rounds coordinates the caller then passes to doc.add / doc.transform",
+  toggleSnapShapes: "snapping only adjusts the offset the caller then passes to doc.transform",
+  checkUpdates: "updates the app itself, not the document",
   select: "the select tool picks a mode for pointer input",
 };
 

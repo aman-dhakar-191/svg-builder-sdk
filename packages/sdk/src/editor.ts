@@ -17,6 +17,7 @@ import {
   type NodeData,
   type NodeId,
   type PathMove,
+  type PathNodeOp,
   type PathSegment,
   type Query,
   type SerializeOptions,
@@ -602,6 +603,16 @@ export class DocumentApi {
    */
   pathEdit(id: NodeId, moves: PathMove[], options: { handles?: boolean } = {}): string {
     return this.run({ op: "pathEdit", id, moves, ...(options.handles !== undefined ? { handles: options.handles } : {}) }).d;
+  }
+
+  /**
+   * Node-level path edits, by segment index from getPath() (a node is its segment's end point):
+   * insert a node on a segment at t (0..1) without changing the outline, delete a node, make a
+   * node a corner (handles pulled in) or smooth (handles in line), or make a segment a line or a
+   * curve. One undo step; returns the new `d`. Indices after the edited node shift.
+   */
+  pathNode(id: NodeId, op: PathNodeOp): string {
+    return this.run({ op: "pathNode", id, ...op }).d;
   }
 
   /** Replaces a rect, circle, ellipse, line, polyline or polygon by an equivalent <path>; returns the new path's ID. */

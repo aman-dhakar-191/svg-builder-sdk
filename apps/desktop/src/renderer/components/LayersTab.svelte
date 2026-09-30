@@ -113,6 +113,8 @@
       draggable="true"
       style:padding-left="{6 + depth * 14}px"
       onclick={(e) => click(e, n.id)}
+      onpointerenter={() => session.canvas?.setHover(n.id)}
+      onpointerleave={() => session.canvas?.setHover(null)}
       onkeydown={(e) => { if (e.key === "Enter") click(e as unknown as MouseEvent, n.id); }}
       ondragstart={(e) => { dragging = n.id; e.dataTransfer?.setData("text/plain", n.id); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
       ondragend={() => { dragging = null; drop = null; }}

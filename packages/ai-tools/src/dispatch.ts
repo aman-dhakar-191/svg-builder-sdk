@@ -1,4 +1,4 @@
-import { SvgEditorError, TEXT_TAG, type BBox, type DocumentApi, type Editor, type NodeId, type PathMove, type TreeNode } from "@svg-editor/sdk";
+import { SvgEditorError, TEXT_TAG, type BBox, type DocumentApi, type Editor, type NodeId, type PathMove, type PathNodeOp, type TreeNode } from "@svg-editor/sdk";
 import { TOOLS } from "./tools.js";
 import { validate } from "./validate.js";
 
@@ -211,6 +211,12 @@ const HANDLERS: Record<string, Handler> = {
   edit_path: (t, input: { id: NodeId; moves: PathMove[]; keep_handles?: boolean }) => ({
     id: input.id,
     d: t.doc.pathEdit(input.id, input.moves, input.keep_handles === undefined ? {} : { handles: input.keep_handles }),
+  }),
+
+  edit_path_nodes: (t, input: { id: NodeId; action: string; seg: number; t?: number; type?: string }) => ({
+    id: input.id,
+    // The model validates the action/type pairing and reports a readable error.
+    d: t.doc.pathNode(input.id, { action: input.action, seg: input.seg, ...(input.t !== undefined ? { t: input.t } : {}), ...(input.type !== undefined ? { type: input.type } : {}) } as PathNodeOp),
   }),
 
   combine_shapes: (t, input: { operation: "union" | "subtract" | "intersect" | "exclude"; ids: NodeId[] }) => {

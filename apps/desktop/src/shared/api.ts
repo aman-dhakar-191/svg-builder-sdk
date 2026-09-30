@@ -7,6 +7,7 @@ export type MenuAction =
   | "open"
   | "save"
   | "saveAs"
+  | "export"
   | "exportPng"
   | "saveAndClose"
   | "zoomIn"
@@ -15,6 +16,8 @@ export type MenuAction =
   | "zoomFit"
   | "toggleGrid"
   | "toggleSnap"
+  | "toggleSnapShapes"
+  | "checkUpdates"
   | "simulateAiTurn"
   | "convertToPath"
   | "editNodes"
@@ -41,7 +44,33 @@ export interface RecentFile {
 export interface SaveResult {
   saved: boolean;
   name?: string;
+  /** Why nothing was written, when the user should be told. */
+  error?: string;
 }
+
+/** Where the app's own update stands (Windows and Linux; macOS is not offered updates). */
+export type UpdateState =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "none"; version: string }
+  | { state: "available"; version: string }
+  | { state: "downloading"; version: string; percent: number }
+  | { state: "ready"; version: string }
+  | { state: "error"; message: string }
+  | { state: "unsupported"; message: string };
+
+export interface UpdateApi {
+  /** The running version, the current state, and whether checks happen on start. */
+  get(): Promise<{ current: string; state: UpdateState; autoCheck: boolean; supported: boolean }>;
+  check(): void;
+  setAutoCheck(on: boolean): Promise<void>;
+  /** Restarts into the downloaded version (only in the "ready" state). */
+  install(): void;
+  onState(listener: (state: UpdateState) => void): void;
+}
+
+/** SVG export styles: re-indented, or with no whitespace between tags. */
+export type SvgExportStyle = "formatted" | "minified";
 
 export interface DesktopApi {
   platform: string;
@@ -49,6 +78,8 @@ export interface DesktopApi {
   save(text: string): Promise<SaveResult>;
   saveAs(text: string): Promise<SaveResult>;
   exportPng(bytes: Uint8Array): Promise<SaveResult>;
+  /** Writes a copy; the open file and its path are unchanged. */
+  exportSvg(text: string, style: SvgExportStyle): Promise<SaveResult>;
   newDocument(): void;
   setDirty(dirty: boolean): void;
   closeWindow(): void;
@@ -60,6 +91,7 @@ export interface DesktopApi {
   /** Colours of the window buttons drawn over the custom title bar. */
   setTitleBarTheme(theme: "light" | "dark"): void;
   ai: AiApi;
+  update: UpdateApi;
 }
 
 /** AI side chat. The API key goes in (settings) but never comes back out. */

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createDocument, formatPath, parsePath, type SvgDocument } from "../src/index.js";
+import { createDocument, formatPath, nearestOnPath, parsePath, type SvgDocument } from "../src/index.js";
 import { expectNoChange, expectRoundTrip, ok } from "./helpers.js";
 
 let doc: SvgDocument;
@@ -170,5 +170,114 @@ describe("simplify", () => {
     const p = add("path", { d: "M0 0 L10 10" });
     expect(expectNoChange(doc, { op: "simplify", id: r }).code).toBe("NOT_A_PATH");
     expect(expectNoChange(doc, { op: "simplify", id: p, tolerance: 0 }).code).toBe("INVALID_COMMAND");
+  });
+});
+
+describe("pathNode", () => {
+  const d = (id: string) => doc.getNode(id)!.attrs.d;
+  const segs = (id: string) => parsePath(d(id)!);
+
+  it("inserts a node on a line, a cubic, a quadratic and an arc without changing the outline", () => {
+    const p = add("path", { d: "M0 0 L10 0 C10 10 20 10 20 0 Q30 10 40 0 A10 10 0 0 1 60 0" });
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "insert", seg: 1, t: 0.5 }).d).toBe("M0 0 L5 0 L10 0 C10 10 20 10 20 0 Q30 10 40 0 A10 10 0 0 1 60 0");
+    ok(doc.execute({ op: "pathNode", id: p, action: "insert", seg: 3, t: 0.5 }));
+    // De Casteljau at t=0.5: the midpoint of this symmetric curve is (15, 7.5).
+    expect(segs(p)[3]).toEqual({ cmd: "C", c1: [10, 5], c2: [12.5, 7.5], p: [15, 7.5] });
+    expect(segs(p)[4]).toEqual({ cmd: "C", c1: [17.5, 7.5], c2: [20, 5], p: [20, 0] });
+    ok(doc.execute({ op: "pathNode", id: p, action: "insert", seg: 5, t: 0.5 }));
+    expect(segs(p)[5]).toEqual({ cmd: "Q", c: [25, 5], p: [30, 5] });
+    ok(doc.execute({ op: "pathNode", id: p, action: "insert", seg: 7, t: 0.5 }));
+    // A half circle from (40,0) to (60,0), sweep 1: its middle is the top, (50, -10).
+    const [a1, a2] = [segs(p)[7]!, segs(p)[8]!];
+    expect(a1).toMatchObject({ cmd: "A", rx: 10, ry: 10, largeArc: false, sweep: true });
+    expect((a1 as { p: number[] }).p[0]).toBeCloseTo(50);
+    expect((a1 as { p: number[] }).p[1]).toBeCloseTo(-10);
+    expect(a2).toMatchObject({ cmd: "A", largeArc: false, p: [60, 0] });
+  });
+
+  it("inserts on the implicit closing line of a Z", () => {
+    const p = add("path", { d: "M0 0 L10 0 L10 10 Z" });
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "insert", seg: 3, t: 0.5 }).d).toBe("M0 0 L10 0 L10 10 L5 5 Z");
+  });
+
+  it("deletes a node: neighbours join, curves keep their outer handles", () => {
+    const p = add("path", { d: "M0 0 L10 0 L20 0 C25 5 30 5 35 0" });
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "delete", seg: 1 }).d).toBe("M0 0 L20 0 C25 5 30 5 35 0");
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "delete", seg: 1 }).d).toBe("M0 0 C0 0 30 5 35 0");
+  });
+
+  it("deletes the last point of an open path, and the start of a closed one", () => {
+    const open = add("path", { d: "M0 0 L10 0 L20 0" });
+    expect(expectRoundTrip(doc, { op: "pathNode", id: open, action: "delete", seg: 2 }).d).toBe("M0 0 L10 0");
+    const closed = add("path", { d: "M0 0 L10 0 L10 10 L0 10 Z" });
+    expect(expectRoundTrip(doc, { op: "pathNode", id: closed, action: "delete", seg: 0 }).d).toBe("M10 0 L10 10 L0 10 L10 0 Z");
+    const explicit = add("path", { d: "M0 0 L10 0 L10 10 L0 10 L0 0 Z" });
+    // The explicit closing point is the same node as the start.
+    expect(expectRoundTrip(doc, { op: "pathNode", id: explicit, action: "delete", seg: 4 }).d).toBe("M10 0 L10 10 L0 10 L10 0 Z");
+  });
+
+  it("refuses to leave fewer than two points", () => {
+    const p = add("path", { d: "M0 0 L10 0" });
+    expect(expectNoChange(doc, { op: "pathNode", id: p, action: "delete", seg: 1 }).code).toBe("TOO_FEW_POINTS");
+  });
+
+  it("makes a node smooth (handles in line) and a corner (handles pulled in)", () => {
+    const p = add("path", { d: "M0 0 L10 0 L20 10" });
+    ok(doc.execute({ op: "pathNode", id: p, action: "node", seg: 1, type: "smooth" }));
+    const [, a, b] = segs(p) as [unknown, { c2: number[]; p: number[] }, { c1: number[] }];
+    const u = [a.p[0]! - a.c2[0]!, a.p[1]! - a.c2[1]!];
+    const v = [b.c1[0]! - a.p[0]!, b.c1[1]! - a.p[1]!];
+    expect(u[0]! * v[1]! - u[1]! * v[0]!).toBeCloseTo(0); // collinear
+    expect(u[0]! * v[0]! + u[1]! * v[1]!).toBeGreaterThan(0); // same direction through the node
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "node", seg: 1, type: "corner" }).d).toMatch(/C[\d.]+ [\d.]+ 10 0 10 0 C10 0 /);
+    const end = add("path", { d: "M0 0 L10 0" });
+    expect(expectNoChange(doc, { op: "pathNode", id: end, action: "node", seg: 1, type: "smooth" }).code).toBe("INVALID_COMMAND");
+  });
+
+  it("changes a segment between line and curve; an arc becomes cubics", () => {
+    const p = add("path", { d: "M0 0 L30 0 A10 10 0 0 1 50 0" });
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "segment", seg: 1, type: "curve" }).d).toBe("M0 0 C10 0 20 0 30 0 A10 10 0 0 1 50 0");
+    expect(expectRoundTrip(doc, { op: "pathNode", id: p, action: "segment", seg: 1, type: "line" }).d).toBe("M0 0 L30 0 A10 10 0 0 1 50 0");
+    const r = ok(doc.execute({ op: "pathNode", id: p, action: "segment", seg: 2, type: "curve" }));
+    expect(r.d).not.toContain("A");
+    expect(segs(p).at(-1)).toMatchObject({ cmd: "C", p: [50, 0] });
+  });
+
+  it("dragging a handle of a smooth node turns the other handle with it", () => {
+    const p = add("path", { d: "M0 0 C0 10 10 10 20 10 C30 10 40 10 40 0" });
+    const r = ok(doc.execute({ op: "pathEdit", id: p, moves: [{ seg: 1, point: "c2", to: [10, 0] }] }));
+    // The out handle (30,10) keeps its length 10 and points away from (10,0) through (20,10).
+    const out = (parsePath(r.d)[2] as { c1: number[] }).c1;
+    expect(out[0]).toBeCloseTo(20 + 10 / Math.SQRT2);
+    expect(out[1]).toBeCloseTo(10 + 10 / Math.SQRT2);
+    // A corner (handles not in line) is left alone, as is any drag with handles: false.
+    const c = add("path", { d: "M0 0 C0 10 10 10 20 10 C20 20 40 10 40 0" });
+    expect(ok(doc.execute({ op: "pathEdit", id: c, moves: [{ seg: 1, point: "c2", to: [10, 0] }] })).d).toContain("C20 20 40 10 40 0");
+  });
+
+  it("rejects bad input without changing anything", () => {
+    const p = add("path", { d: "M0 0 L10 0 Z" });
+    expect(expectNoChange(doc, { op: "pathNode", id: p, action: "insert", seg: 1, t: 1 }).code).toBe("INVALID_COMMAND");
+    expect(expectNoChange(doc, { op: "pathNode", id: p, action: "delete", seg: 9 }).code).toBe("INDEX_OUT_OF_RANGE");
+    expect(expectNoChange(doc, { op: "pathNode", id: p, action: "node", seg: 1, type: "round" }).code).toBe("INVALID_COMMAND");
+    expect(expectNoChange(doc, { op: "pathNode", id: p, action: "grow", seg: 1 }).code).toBe("INVALID_COMMAND");
+    const r = add("rect", { width: "5", height: "5" });
+    expect(expectNoChange(doc, { op: "pathNode", id: r, action: "delete", seg: 1 }).code).toBe("NOT_A_PATH");
+  });
+});
+
+describe("nearestOnPath", () => {
+  it("finds the segment and t closest to a point, on lines, curves, arcs and the closing line", () => {
+    const segs = parsePath("M0 0 L10 0 C10 10 20 10 20 0 A10 10 0 0 1 40 0 Z");
+    expect(nearestOnPath(segs, [5, 1])).toMatchObject({ seg: 1 });
+    expect(nearestOnPath(segs, [5, 1])!.t).toBeCloseTo(0.5, 3);
+    const c = nearestOnPath(segs, [15, 9])!;
+    expect(c.seg).toBe(2);
+    expect(c.t).toBeCloseTo(0.5, 2); // the top of the symmetric curve is at (15, 7.5)
+    const a = nearestOnPath(segs, [30, -12])!;
+    expect(a.seg).toBe(3);
+    expect(a.point[1]).toBeCloseTo(-10, 2);
+    const z = nearestOnPath(segs, [30, 2])!;
+    expect(z).toMatchObject({ seg: 4 }); // the implicit line back to (0, 0)
   });
 });

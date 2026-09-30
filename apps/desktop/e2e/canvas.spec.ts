@@ -243,7 +243,7 @@ test("Convert to Path, then drag a node: preview matches result, one undo step, 
   await expect(path).toHaveAttribute("d", converted);
   await expect(page.locator("#canvas svg > rect")).toHaveCount(0);
   await expect(nodes()).toHaveCount(9); // M + 4 lines + 4 arcs
-  await expect(page.locator("#status")).toContainText("Editing path nodes");
+  await expect(page.locator("#status")).toContainText("Editing points");
   const afterConvert = await code();
   expect(afterConvert).toContain(`<path fill="#4f46e5" d="${converted}"/>`); // attributes keep their order
 
@@ -292,12 +292,95 @@ test("double-click a path to edit its curve handles; Alt moves a point alone; Es
   await expect.poll(() => path.getAttribute("d")).toMatch(/ 60 80 \d+(\.\d+)? 100$/);
   expect(await path.getAttribute("d")).not.toMatch(/ 80 100$/);
 
-  // Delete does not delete the path while editing nodes; Esc leaves node editing.
+  // Delete never deletes the path while editing points (here it would leave one point: refused); Esc leaves.
   await page.keyboard.press("Delete");
   await expect(path).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(nodes()).toHaveCount(0);
   await expect(page.locator("#overlay .handle.nw")).toHaveCount(1); // normal handles again
+});
+
+test("points: double-click the outline adds one, Delete removes it, double-click a point makes it smooth; each one undo step", async () => {
+  await page.evaluate(() => {
+    const { editor } = (window as unknown as { editor: { editor: { doc: { add(t: string, a: object): string }; select(ids: string[]): void } } }).editor;
+    editor.select([editor.doc.add("path", { d: "M100 85 L180 85 L180 115", stroke: "black", fill: "none", "stroke-width": "1" })]);
+  });
+  const path = page.locator("#canvas svg > path");
+  const d = () => path.getAttribute("d");
+  const screen = (x: number, y: number) =>
+    path.evaluate((el, [px, py]) => {
+      const q = new DOMPoint(px, py).matrixTransform((el as SVGGraphicsElement).getScreenCTM()!);
+      return { x: q.x, y: q.y };
+    }, [x, y] as const);
+  await page.locator("#canvas").focus();
+  await page.keyboard.press("Enter"); // edit the selected path's points
+  await expect(nodes()).toHaveCount(3);
+
+  // Double-click 2 px off the thin stroke, a quarter along the first segment: a point is added there.
+  const quarter = await screen(120, 85);
+  await page.mouse.dblclick(quarter.x, quarter.y + 2);
+  // The new point is on the line, where the pointer was (to within a pixel), rounded to 2 decimals.
+  await expect.poll(d).toMatch(/^M100 85 L(119|120)(\.\d{1,2})? 85 L180 85 L180 115$/);
+  await expect(nodes()).toHaveCount(4);
+  await expect(page.locator("#overlay .handle.node.active")).toHaveCount(1); // the new point is selected
+  await expect(page.getByRole("button", { name: "Delete point" })).toBeVisible();
+
+  // Delete removes the selected point (not the path).
+  await page.keyboard.press("Delete");
+  await expect.poll(d).toBe("M100 85 L180 85 L180 115");
+
+  // Double-click the corner: smooth (lines become curves with handles in line); again: a corner.
+  const corner = await screen(180, 85);
+  await page.mouse.dblclick(corner.x, corner.y);
+  await expect.poll(d).toMatch(/^M100 85 C[\d. ]+ 180 85 C[\d. ]+ 180 115$/);
+  await expect(page.getByRole("button", { name: "Smooth" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Corner" }).click();
+  await expect.poll(d).toMatch(/ 180 85 180 85 C180 85 /);
+
+  // The segment into the selected point back to a straight line.
+  await page.getByRole("button", { name: "Straight line" }).click();
+  await expect.poll(d).toMatch(/^M100 85 L180 85 C/);
+
+  // Each action was one undo step (insert, delete, smooth, corner, line): four undos are back
+  // to just after the insert, the fifth to the original.
+  await page.locator("#canvas").focus();
+  for (let i = 0; i < 4; i++) await page.keyboard.press("Control+z");
+  await expect.poll(d).toMatch(/^M100 85 L(119|120)(\.\d{1,2})? 85 L180 85 L180 115$/);
+  await page.keyboard.press("Control+z");
+  await expect.poll(d).toBe("M100 85 L180 85 L180 115");
+});
+
+test("snap to shapes: an edge dragged near another shape's lands on it, with a guide; Alt turns it off", async () => {
+  const original = await code();
+  const r = (await rect().boundingBox())!;
+  const c = (await circle().boundingBox())!;
+  const from = await center(rect());
+  // Stop 3 px short of the circle's left edge (x = 110), horizontally (Shift).
+  const to = { x: from.x + (c.x - (r.x + r.width)) - 3, y: from.y };
+  // Shift after the press keeps the move horizontal (Shift at the press would toggle the selection).
+  const straightDrag = async (hold: "Alt" | null, beforeUp?: () => Promise<void>) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.keyboard.down("Shift");
+    if (hold) await page.keyboard.down(hold);
+    for (let i = 1; i <= 5; i++) await page.mouse.move(from.x + ((to.x - from.x) * i) / 5, from.y);
+    await beforeUp?.();
+    await page.mouse.up();
+    if (hold) await page.keyboard.up(hold);
+    await page.keyboard.up("Shift");
+  };
+  let guides = 0;
+  await straightDrag(null, async () => { guides = await page.locator("#overlay .snap-guide").count(); });
+  expect(guides).toBe(1);
+  await expect(page.locator("#overlay .snap-guide")).toHaveCount(0); // gone after the drop
+  await expect.poll(code).toContain('<rect x="10" y="10" width="80" height="60" rx="8" fill="#4f46e5" transform="translate(20 0)"/>');
+  await undoRestores(original);
+
+  // With Alt held the shape stays where the pointer put it.
+  await straightDrag("Alt");
+  await expect.poll(code).toMatch(/transform="translate\((\d+(\.\d+)?) 0\)"/);
+  expect(await code()).not.toContain("translate(20 0)");
+  await undoRestores(original);
 });
 
 test("Convert to Path explains what it cannot do", async () => {

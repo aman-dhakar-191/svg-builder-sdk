@@ -6,10 +6,11 @@ import { Annotation, Compartment, EditorState, type Extension } from "@codemirro
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { createEditor, EMPTY_SVG, SvgEditorError, type AbortSignalLike, type Editor, type LockInfo, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
-import type { DesktopApi, MenuAction } from "../../shared/api.js";
+import type { DesktopApi, MenuAction, SvgExportStyle, UpdateState } from "../../shared/api.js";
 import { CanvasController, type Tool } from "../canvas.js";
 import { selectionHighlight, setHighlights } from "../highlight.js";
 import { SAMPLE } from "../sample.js";
+import { numberAt, scrubbed, type ScrubNumber } from "../scrub.js";
 import { Viewport } from "../viewport.js";
 import { reducedMotion } from "./motion.js";
 
@@ -28,7 +29,7 @@ declare global {
 
 export type Mode = "editor" | "agent";
 export type Theme = "system" | "light" | "dark";
-export type Overlay = "palette" | "settings" | "start" | null;
+export type Overlay = "palette" | "settings" | "start" | "export" | null;
 export interface Status {
   text: string;
   error: boolean;
@@ -91,10 +92,21 @@ export class Session {
   zoom = $state(1);
   grid = $state(false);
   snap = $state(false);
+  /** Snap moved shapes to other shapes' edges and centres (guides). */
+  snapShapes = $state(true);
   nodeEditing = $state(false);
+  /** The selected point while editing a path's points. */
+  activeNode: { seg: number; smooth: boolean; isStart: boolean } | null = $state(null);
   status: Status = $state({ text: "", error: false, id: 0 });
   docName = $state("Untitled.svg");
   dirty = $state(false);
+  /** The app's own update (Windows and Linux). */
+  update: UpdateState = $state({ state: "idle" });
+  appVersion = $state("");
+  updateAutoCheck = $state(true);
+  updatesSupported = $state(false);
+  /** The user asked (menu, palette, Settings): report "up to date" and errors too. */
+  private manualUpdateCheck = false;
   overlay: Overlay = $state(null);
   theme: Theme = $state(readTheme());
   canUndo = $state(false);
@@ -119,6 +131,13 @@ export class Session {
     this.showSelectionStatus([]);
     this.applyTheme();
     window.desktop?.onMenu((action) => this.run(action));
+    void window.desktop?.update?.get().then((u) => {
+      this.appVersion = u.current;
+      this.update = u.state;
+      this.updateAutoCheck = u.autoCheck;
+      this.updatesSupported = u.supported;
+    });
+    window.desktop?.update?.onState((u) => this.updateChanged(u));
   }
 
   private extensions(): Extension[] {
@@ -138,6 +157,29 @@ export class Session {
         { key: "Mod-y", run: () => this.redo(), preventDefault: true },
         ...defaultKeymap,
       ]),
+      // Pointing at markup outlines its element on the canvas; Alt+drag on a number scrubs it.
+      EditorView.domEventHandlers({
+        mousemove: (e, view) => {
+          const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }, false);
+          const id = pos === null || view.state.doc.toString() !== this.editor.text ? undefined : this.editor.nodeAt(pos);
+          this.canvas?.setHover(id === undefined || id === this.editor.doc.root ? null : id);
+          const scrubbable = e.altKey && !this.lock && pos !== null && numberAt(view.state.doc.toString(), pos) !== null;
+          view.contentDOM.style.cursor = scrubbable ? "ew-resize" : "";
+        },
+        mouseleave: (_e, view) => {
+          this.canvas?.setHover(null);
+          view.contentDOM.style.cursor = "";
+        },
+        mousedown: (e, view) => {
+          if (!e.altKey || e.button !== 0 || this.lock) return false;
+          const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }, false);
+          const n = pos === null ? null : numberAt(view.state.doc.toString(), pos);
+          if (!n) return false;
+          e.preventDefault();
+          this.scrub(view, n, e.clientX);
+          return true;
+        },
+      }),
       EditorView.updateListener.of((u) => {
         if (u.transactions.some((t) => t.annotation(fromModel))) return;
         if (u.docChanged) {
@@ -165,9 +207,11 @@ export class Session {
       this.canvas?.refresh();
     });
     this.canvas.snapper = this.viewport;
+    this.canvas.onActiveNode = (n) => (this.activeNode = n);
+    this.canvas.onNodeError = (message) => this.showStatus(message, true);
     this.canvas.onNodeEdit = (on) => {
       this.nodeEditing = on;
-      if (on) this.showStatus("Editing path nodes: drag points and handles (Alt: move a point without its handles). Esc to finish.", false);
+      if (on) this.showStatus("Editing points: drag to move (Alt: a point alone), double-click the outline to add one, Delete to remove. Esc to finish.", false);
       else this.showSelectionStatus(this.editor.getSelection());
     };
     host.addEventListener("scroll", () => this.viewport?.drawGrid());
@@ -206,6 +250,50 @@ export class Session {
       this.showStatus(e.message, true);
     }
   };
+
+  /**
+   * Drag-to-scrub a number in the code pane: 2 px per step of the number's own precision
+   * (Shift: x10). The canvas follows live; the whole drag is one undo step; Esc cancels it.
+   */
+  private scrub(view: EditorView, n: ScrubNumber, startX: number): void {
+    this.flush();
+    if (view.state.doc.toString() !== this.editor.text) return this.showStatus("Fix the code error first, then scrub.", true);
+    const batch = this.editor.beginBatch();
+    let to = n.to;
+    let changed = false;
+    const move = (e: MouseEvent) => {
+      const text = scrubbed(n, Math.round((e.clientX - startX) / 2), e.shiftKey);
+      if (text === view.state.doc.sliceString(n.from, to)) return;
+      view.dispatch({ changes: { from: n.from, to, insert: text } });
+      to = n.from + text.length;
+      changed = true;
+      this.flush();
+    };
+    const end = (keep: boolean) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("keydown", key, true);
+      document.body.style.cursor = "";
+      if (keep) batch.commit();
+      else {
+        batch.rollback();
+        // Put the code back to the model's text if the rollback did not already.
+        if (view.state.doc.toString() !== this.editor.text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: this.editor.text }, annotations: fromModel.of(true) });
+      }
+      if (changed) this.showStatus(keep ? `Set to ${view.state.doc.sliceString(n.from, to)}` : "Scrub cancelled.", false);
+    };
+    const up = () => end(true);
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      end(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", key, true);
+    document.body.style.cursor = "ew-resize";
+  }
 
   // ------------------------------------------------------------ model -> views
 
@@ -394,6 +482,55 @@ export class Session {
     }
   }
 
+  toggleSnapShapes(): void {
+    this.snapShapes = !this.snapShapes;
+    if (this.canvas) this.canvas.snapShapes = this.snapShapes;
+  }
+
+  private updateChanged(u: UpdateState): void {
+    this.update = u;
+    const manual = this.manualUpdateCheck;
+    if (u.state === "ready") this.showStatus(`Version ${u.version} is ready: restart to update.`, false);
+    else if (u.state === "none" && manual) this.showStatus(`SVG Editor ${u.version} is the latest version.`, false);
+    else if (u.state === "available") this.showStatus(`Version ${u.version} is available.`, false);
+    else if ((u.state === "error" || u.state === "unsupported") && manual) this.showStatus(u.message, u.state === "error");
+    if (u.state !== "checking") this.manualUpdateCheck = false;
+  }
+
+  checkForUpdates(): void {
+    this.manualUpdateCheck = true;
+    window.desktop.update.check();
+  }
+
+  async setUpdateAutoCheck(on: boolean): Promise<void> {
+    this.updateAutoCheck = on;
+    await window.desktop.update.setAutoCheck(on);
+  }
+
+  /** Restarts into the downloaded version: after the agent's turn, and with the drawing saved. */
+  async restartToUpdate(): Promise<void> {
+    if (this.update.state !== "ready") return;
+    if (this.lock) return this.showStatus("The agent is working: stop it or let it finish, then restart to update.", true);
+    if (this.dirty && !(await this.save(false))) return this.showStatus("Save the drawing first, then restart to update.", true);
+    window.desktop.update.install();
+  }
+
+  /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
+  svgText(style: SvgExportStyle): string {
+    this.flush();
+    return this.editor.toSvg({ pretty: style === "formatted" }) + (style === "formatted" ? "\n" : "");
+  }
+
+  async exportSvg(style: SvgExportStyle): Promise<void> {
+    try {
+      const r = await window.desktop.exportSvg(this.svgText(style), style);
+      if (r.saved) this.showStatus(`Exported ${r.name}`, false);
+      else if (r.error) this.showStatus(r.error, true);
+    } catch (e) {
+      this.showStatus(e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
   text(): string {
     return this.view.state.doc.toString();
   }
@@ -533,6 +670,7 @@ export class Session {
     save: () => this.guard(() => void this.save(false)),
     saveAs: () => this.guard(() => void this.save(true)),
     saveAndClose: () => this.guard(() => void this.save(false).then((ok) => ok && window.desktop.closeWindow())),
+    export: () => this.guard(() => (this.overlay = "export")),
     exportPng: () => this.guard(() => void this.exportPng()),
     simulateAiTurn: () => void this.simulateAiTurn(),
     convertToPath: () => this.convertToPath(),
@@ -548,6 +686,8 @@ export class Session {
     zoomFit: () => this.viewport?.fit(),
     toggleGrid: () => this.viewport?.toggleGrid(),
     toggleSnap: () => this.viewport?.toggleSnap(),
+    toggleSnapShapes: () => this.toggleSnapShapes(),
+    checkUpdates: () => this.checkForUpdates(),
     undo: () => void this.undo(),
     redo: () => void this.redo(),
     toggleMode: () => this.toggleMode(),

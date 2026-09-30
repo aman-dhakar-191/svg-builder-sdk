@@ -161,6 +161,8 @@ test("tool errors go back to the model, which corrects itself", async () => {
   await ask("make it red");
   await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Fixed.");
   await expect(page.locator(".chat-tools li.error")).toContainText("set attributes");
+  await expect(page.locator(".chat-tools li.error .step-error")).not.toBeEmpty(); // the reason, on its own line
+  await expect(page.locator(".steps-head")).toContainText("1 step failed");
   const result = (mock.requests[1]!.body.messages as { content: { is_error?: boolean; content: string }[] }[])[2]!.content[0]!;
   expect(result.is_error).toBe(true);
   expect(JSON.parse(result.content)).toMatchObject({ code: "NOT_FOUND", hint: expect.any(String) });

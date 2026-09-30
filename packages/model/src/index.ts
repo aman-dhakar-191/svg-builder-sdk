@@ -4,7 +4,7 @@ export type { Mutation } from "./mutations.js";
 export { escapeAttr, escapeText, serialize, TEXT_CONTAINERS, type SerializeOptions } from "./serialize.js";
 export { TEXT_TAG } from "./types.js";
 export { CommandFailure } from "./errors.js";
-export { formatPath, movePathPoints, parsePath, type PathMove, type PathPoint, type PathSegment } from "./path.js";
+export { editPathNode, formatPath, movePathPoints, nearestOnPath, oppositeHandle, parsePath, pointOnSegment, segmentStart, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "./path.js";
 export type {
   BBox,
   Command,
