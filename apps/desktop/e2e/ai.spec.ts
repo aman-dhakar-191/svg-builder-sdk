@@ -322,6 +322,9 @@ test("model picker lists the endpoint's models (both formats); any name can stil
   mock.models = ["claude-opus-5-5", "claude-sonnet-5-5"];
   await page.locator('#ai-settings [name="format"]').selectOption("anthropic");
   await page.locator('#ai-settings [name="baseUrl"]').fill(baseUrl);
+  // The endpoint change is fetched 0.6 s after typing stops; the list may already show 2
+  // from the earlier fetch, so wait for the Anthropic request itself.
+  await expect.poll(() => mock.modelRequests.at(-1)?.headers["x-api-key"]).toBe(KEY);
+  expect(mock.modelRequests.at(-1)).toMatchObject({ path: "/v1/models" });
   await expect(page.locator("#ai-models option")).toHaveCount(2);
-  expect(mock.modelRequests.at(-1)).toMatchObject({ path: "/v1/models", headers: { "x-api-key": KEY } });
 });
