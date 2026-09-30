@@ -202,3 +202,28 @@ test("resizing a rotated shape follows its own axes without jumping", async () =
   await page.keyboard.press("Control+z");
   await undoRestores(original);
 });
+
+test("shapes dragged past the page edge stay visible and grabbable; the page edge is marked", async () => {
+  await page.locator('[data-view="zoomOut"]').click(); // leave room around the page
+  await page.locator('[data-view="zoomOut"]').click();
+  const page_ = page.locator("#canvas > svg");
+  const pageBox = (await page_.boundingBox())!;
+  const c = await center(circle());
+  // Drag the circle so its center lands 40px beyond the page's right edge.
+  const to = { x: pageBox.x + pageBox.width + 40, y: c.y };
+  await drag(c, to);
+  await expect(page.locator("#canvas svg > circle")).toHaveAttribute("transform", /translate/);
+
+  // Not clipped: the circle is what's under the pointer outside the page, and it can be dragged back.
+  const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.tagName, [to.x, to.y]);
+  expect(hit).toBe("circle");
+  const off = await page_.evaluate((svg) => getComputedStyle(svg).overflow);
+  expect(off).toBe("visible");
+  // Outside the page is dimmed (mask with a hole for the page), so it reads as "cropped on export".
+  await expect(page.locator("#grid path.off-page")).toHaveCount(1);
+  await page.screenshot({ path: "test-results/off-page.png" });
+
+  await drag(to, c);
+  const back = (await circle().boundingBox())!;
+  expect(back.x + back.width).toBeLessThan(pageBox.x + pageBox.width);
+});

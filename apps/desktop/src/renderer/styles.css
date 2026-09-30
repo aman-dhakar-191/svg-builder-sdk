@@ -7,6 +7,8 @@
   --error: #c62828;
   --checker: #eceef1;
   --accent: #2563eb;
+  --desk: #dfe2e7;
+  --page-edge: #9aa1ab;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -17,6 +19,8 @@
     --error: #ff6b6b;
     --checker: #2c2e33;
     --accent: #60a5fa;
+    --desk: #16171a;
+    --page-edge: #5b6068;
   }
 }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; }
@@ -50,12 +54,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .cm-selected-node { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 #canvas {
   position: absolute; inset: 0; overflow: auto; display: flex; padding: 24px; box-sizing: border-box;
+  background: var(--desk);
+}
+/* The <svg> is the page: checkerboard for transparency, outlined so its edge is visible.
+   overflow: visible keeps shapes outside the page on screen (dimmed by .off-page); export crops to the page. */
+#canvas > svg {
+  margin: auto; flex: none; overflow: visible;
+  background-color: var(--bg);
   background-image: conic-gradient(var(--checker) 25%, transparent 0 50%, var(--checker) 0 75%, transparent 0);
   background-size: 16px 16px;
+  box-shadow: 0 0 0 1px var(--page-edge), 0 2px 10px rgb(0 0 0 / 0.25);
 }
-/* margin:auto centres small drawings; large ones scroll without clipping. */
-#canvas > svg { margin: auto; flex: none; background: transparent; }
 #grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#grid .off-page { fill: color-mix(in srgb, var(--desk) 70%, transparent); }
 #grid .grid-lines { stroke: color-mix(in srgb, var(--text) 14%, transparent); stroke-width: 1; fill: none; shape-rendering: crispEdges; }
 .toolbar .spacer, #lock-banner .spacer { flex: 1; }
 #lock-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--accent) 16%, var(--bg)); border-bottom: 1px solid var(--accent); }

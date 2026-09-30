@@ -115,3 +115,10 @@
 | Key storage | `safeStorage` (keychain / DPAPI / libsecret), base64 in `userData/ai-settings.json` (mode 0600). Linux `basic_text` counts as insecure: key kept in memory only, and the UI says so. Settings input is re-validated in main. | |
 | Conversation | Per window; reset when format, base URL or model change (histories are not portable between providers); "New chat" resets it. | |
 | Tests | Unit: `packages/ai-tools` (schemas, validator, every tool, house acceptance through a lock session). e2e: scripted mock Anthropic SSE server and mock Chat Completions server (`e2e/mock-ai.ts`) drive the real provider code — house with a red door (both formats), lock during the run, single Ctrl+Z, tool errors fed back, Stop cancels the request, API errors roll back, test connection, key never returned or stored in plain text. | No real API calls in CI. |
+
+## Canvas: page edge and off-page content
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Page | The rendered `<svg>` is drawn as a page: checkerboard (transparency) inside, outlined, on a plain desk colour. | Users could not see where the drawing ends; shapes dragged past it looked cut off. |
+| Off-page shapes | Shown (`overflow: visible`) and still selectable, but dimmed by a mask outside the page. Export and the saved file are unchanged: SVG crops to the viewBox. | Same model as Inkscape/Figma. Revisit: content far off-page is not in the scroll area; a "fit to content" zoom may be needed. |
