@@ -23,6 +23,12 @@ export interface Recorded {
 
 export class MockAi {
   readonly requests: Recorded[] = [];
+  /** Answer Chat Completions as SSE even when stream: false (some gateways do). */
+  openaiStreams = false;
+  /** Model IDs for GET .../models. */
+  models = ["mock-model-a", "mock-model-b"];
+  /** GET .../models requests (kept apart so `requests` stays one entry per model call). */
+  readonly modelRequests: { path: string; headers: IncomingMessage["headers"] }[] = [];
   private steps: Step[] = [];
   private gates: (Promise<void> | undefined)[] = [];
   private server!: Server;
@@ -47,12 +53,21 @@ export class MockAi {
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let raw = "";
     for await (const chunk of req) raw += chunk;
+    const path = (req.url ?? "").split("?")[0]!;
+    if (req.method === "GET" && path.endsWith("/models")) {
+      this.modelRequests.push({ path, headers: req.headers });
+      res.writeHead(200, { "content-type": "application/json" });
+      const data = path.startsWith("/v1/models")
+        ? this.models.map((id) => ({ id, type: "model", display_name: id, created_at: "2026-01-01T00:00:00Z" }))
+        : this.models.map((id) => ({ id, object: "model" }));
+      return void res.end(JSON.stringify({ data, has_more: false, first_id: this.models[0] ?? null, last_id: this.models.at(-1) ?? null }));
+    }
     let closed!: () => void;
     const aborted = new Promise<void>((r) => (closed = r));
     res.on("close", () => {
       if (!res.writableEnded) closed();
     });
-    this.requests.push({ path: req.url ?? "", headers: req.headers, body: JSON.parse(raw) as Record<string, unknown>, aborted });
+    this.requests.push({ path: req.url ?? "", headers: req.headers, body: (raw ? JSON.parse(raw) : {}) as Record<string, unknown>, aborted });
     const step = this.steps.shift();
     const gate = this.gates.shift();
     if (gate) await gate;
@@ -62,7 +77,6 @@ export class MockAi {
       res.writeHead(step.status, { "content-type": "application/json" });
       return void res.end(JSON.stringify({ type: "error", error: { type: "error", message: step.error }, message: step.error }));
     }
-    const path = (req.url ?? "").split("?")[0]!;
     if (path.endsWith("/v1/messages")) this.anthropic(res, step);
     else if (path.endsWith("/chat/completions")) this.openai(res, step);
     else res.writeHead(404).end();
@@ -97,6 +111,19 @@ export class MockAi {
   private openai(res: ServerResponse, step: { text?: string; tools?: { name: string; input: unknown }[] }): void {
     const n = this.requests.length;
     const tool_calls = (step.tools ?? []).map((t, k) => ({ id: `call_${n}_${k}`, type: "function", function: { name: t.name, arguments: JSON.stringify(t.input) } }));
+    if (this.openaiStreams) {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const chunk = (delta: object, finish: string | null = null) =>
+        res.write(`data: ${JSON.stringify({ id: `chatcmpl_${n}`, object: "chat.completion.chunk", model: "mock-gpt", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+      chunk({ role: "assistant" });
+      for (const part of step.text?.match(/.{1,5}/gs) ?? []) chunk({ content: part });
+      tool_calls.forEach((c, index) => {
+        chunk({ tool_calls: [{ index, id: c.id, type: "function", function: { name: c.function.name, arguments: "" } }] });
+        for (let i = 0; i < c.function.arguments.length; i += 30) chunk({ tool_calls: [{ index, function: { arguments: c.function.arguments.slice(i, i + 30) } }] });
+      });
+      chunk({}, tool_calls.length ? "tool_calls" : "stop");
+      return void res.end("data: [DONE]\n\n");
+    }
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
       JSON.stringify({

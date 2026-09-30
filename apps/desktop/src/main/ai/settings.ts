@@ -48,14 +48,15 @@ function load(): Stored {
     baseUrl: typeof raw.baseUrl === "string" ? raw.baseUrl : DEFAULT_AI_SETTINGS.baseUrl,
     model: typeof raw.model === "string" && raw.model.trim() ? raw.model : DEFAULT_AI_SETTINGS.model,
     effort: EFFORTS.has(raw.effort as string) ? raw.effort! : DEFAULT_AI_SETTINGS.effort,
+    vision: typeof raw.vision === "boolean" ? raw.vision : DEFAULT_AI_SETTINGS.vision,
     ...(typeof raw.encryptedKey === "string" ? { encryptedKey: raw.encryptedKey } : {}),
   };
   return cache;
 }
 
 export function getSettings(): AiSettings {
-  const { format, baseUrl, model, effort } = load();
-  return { format, baseUrl, model, effort };
+  const { format, baseUrl, model, effort, vision } = load();
+  return { format, baseUrl, model, effort, vision };
 }
 
 export function getApiKey(): string | null {
@@ -96,7 +97,8 @@ export function parseUpdate(u: unknown): AiSettingsUpdate {
     }
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("The base URL must start with https:// or http://.");
   }
-  const update: AiSettingsUpdate = { format: o.format as AiSettings["format"], baseUrl, model: o.model.trim(), effort: o.effort as AiSettings["effort"] };
+  if (typeof o.vision !== "boolean") throw new Error("Invalid image setting.");
+  const update: AiSettingsUpdate = { format: o.format as AiSettings["format"], baseUrl, model: o.model.trim(), effort: o.effort as AiSettings["effort"], vision: o.vision };
   if (o.apiKey === null) update.apiKey = null;
   else if (typeof o.apiKey === "string") {
     if (o.apiKey.length > 1000) throw new Error("The API key is too long.");
@@ -106,7 +108,7 @@ export function parseUpdate(u: unknown): AiSettingsUpdate {
 }
 
 export async function saveSettings(u: AiSettingsUpdate): Promise<AiSettingsView> {
-  const next: Stored = { format: u.format, baseUrl: u.baseUrl, model: u.model, effort: u.effort };
+  const next: Stored = { format: u.format, baseUrl: u.baseUrl, model: u.model, effort: u.effort, vision: u.vision };
   const prev = load();
   if (u.apiKey === undefined) {
     if (prev.encryptedKey) next.encryptedKey = prev.encryptedKey;

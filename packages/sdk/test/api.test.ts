@@ -246,6 +246,45 @@ describe("geometry and bridges", () => {
   });
 });
 
+describe("exportPng options", () => {
+  const capture = (ed: Editor) => {
+    const calls: { svg: string; size: { width: number; height: number } }[] = [];
+    ed.setBridges({
+      rasterize: async (svg, size) => {
+        calls.push({ svg, size });
+        return new Uint8Array([1]);
+      },
+    });
+    return calls;
+  };
+
+  it("region renders a rectangle of the drawing, even outside the page", async () => {
+    const ed = createEditor({ svg: '<svg viewBox="0 0 100 50" width="200" height="100"><rect x="120" width="10" height="10"/></svg>' });
+    const calls = capture(ed);
+    await ed.exportPng({ region: { x: 100, y: 0, width: 50, height: 25 } });
+    expect(calls[0]!.size).toEqual({ width: 100, height: 50 }); // 2 px per unit, as on the page
+    expect(calls[0]!.svg).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="100 0 50 25" width="100" height="50" preserveAspectRatio="none">/);
+    expect(ed.text).toContain('viewBox="0 0 100 50"'); // the document is untouched
+  });
+
+  it("maxSize caps the longer side; background paints under the drawing", async () => {
+    const ed = createEditor({ svg: '<svg viewBox="0 0 400 200" width="400" height="200"><circle r="5"/></svg>' });
+    const calls = capture(ed);
+    await ed.exportPng({ scale: 4, maxSize: 800, background: "white" });
+    expect(calls[0]!.size).toEqual({ width: 800, height: 400 });
+    expect(calls[0]!.svg).toContain('<rect x="0" y="0" width="400" height="200" fill="white"/><circle r="5"/>');
+    await ed.exportPng();
+    expect(calls[1]!.svg).not.toContain("fill=\"white\"");
+    expect(calls[1]!.size).toEqual({ width: 400, height: 200 });
+  });
+
+  it("rejects bad regions", async () => {
+    const ed = createEditor();
+    capture(ed);
+    await expect(ed.exportPng({ region: { x: 0, y: 0, width: 0, height: 5 } })).rejects.toMatchObject({ code: "INVALID_REGION" });
+  });
+});
+
 describe("translateInRoot", () => {
   it("moves nested elements by root units through scaled/rotated parents", () => {
     const ed = createEditor();

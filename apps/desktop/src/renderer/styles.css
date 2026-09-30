@@ -99,6 +99,13 @@ body.locked .code-pane { opacity: 0.85; }
 #ai-settings .hint, #ai-settings-status { margin: 0; font-size: 12px; color: color-mix(in srgb, var(--text) 70%, transparent); }
 #ai-settings-status.error { color: var(--error); }
 #ai-settings-status:empty, #ai-settings .hint:empty { display: none; }
+#ai-settings .combo { display: flex; gap: 4px; }
+#ai-settings .combo input { flex: 1; }
+#ai-settings .combo button { padding: 0 8px; }
+#ai-models-status { color: color-mix(in srgb, var(--text) 65%, transparent); }
+#ai-models-status:empty { display: none; }
+#ai-settings label.check { flex-direction: row; align-items: center; gap: 6px; }
+.chat-snapshot { display: block; max-width: 100%; max-height: 160px; margin: 4px 0; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
 #chat-log { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .chat-msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px 8px; border-radius: 8px; }
 .chat-msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 18%, var(--bg)); max-width: 85%; }

@@ -68,7 +68,14 @@
                 </select>
               </label>
               <label>Base URL <input name="baseUrl" type="url" spellcheck="false" /></label>
-              <label>Model <input name="model" required spellcheck="false" /></label>
+              <label>Model
+                <span class="combo">
+                  <input name="model" required spellcheck="false" list="ai-models" autocomplete="off" />
+                  <button type="button" id="ai-models-refresh" title="Load the models this endpoint offers" aria-label="Load models">⟳</button>
+                </span>
+                <datalist id="ai-models"></datalist>
+                <small id="ai-models-status"></small>
+              </label>
               <label>Effort
                 <select name="effort">
                   <option value="default">Model default</option>
@@ -77,6 +84,7 @@
                   <option value="high">High</option>
                 </select>
               </label>
+              <label class="check"><input name="vision" type="checkbox" /> Model can see images (the AI checks its work with snapshots)</label>
               <label>API key <input name="apiKey" type="password" spellcheck="false" /></label>
               <p id="ai-settings-hint" class="hint"></p>
               <div class="row">

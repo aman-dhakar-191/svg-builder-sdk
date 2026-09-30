@@ -16,6 +16,7 @@ How to work:
 - Build with add_elements, putting related shapes in one call (a <g> first, then its parts with parent "$0"), rather than one call per shape.
 - Prefer simple, clean shapes with explicit fill and stroke attributes. Keep new content inside the viewBox unless asked otherwise.
 - When a tool returns an error, read its message and hint and correct the call; do not repeat the same failing call.
+- If you have the render_snapshot tool, look at the result after drawing something whose appearance matters (layout, overlap, proportions) and fix what is clearly wrong. One or two checks are usually enough; do not chase tiny details.
 - When you are done, reply with one or two sentences saying what you changed. Do not paste SVG code.`;
 
 /** Short, per-turn context appended to the user's message. */

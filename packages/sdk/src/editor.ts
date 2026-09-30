@@ -4,6 +4,7 @@ import {
   IDENTITY,
   multiply,
   parseTransform,
+  serialize,
   TEXT_TAG,
   transformBBox,
   type BBox,
@@ -15,6 +16,7 @@ import {
   type NodeId,
   type Query,
   type SerializeOptions,
+  type SvgNode,
   type TreeNode,
   type Vec2,
 } from "@svg-editor/model";
@@ -71,6 +73,16 @@ export interface TextChangeEvent {
 export type ExecuteResult<T = unknown> =
   | { ok: true; result: T }
   | { ok: false; error: { code: SdkErrorCode; message: string; hint: string; path?: number[] | undefined } };
+
+export interface ExportPngOptions {
+  scale?: number;
+  /** Root user units (viewBox coordinates). */
+  region?: BBox;
+  /** Longest side in pixels. */
+  maxSize?: number;
+  /** CSS colour under the drawing; default transparent. */
+  background?: string;
+}
 
 export interface LockOptions {
   /** Who holds the lock, e.g. "ai". Shown in errors. */
@@ -430,21 +442,74 @@ export class Editor {
     return { width: width ?? (vbw || 300), height: height ?? (vbh || 150) };
   }
 
-  /** PNG bytes. Needs a rasterizer bridge (the desktop app has one; headless scripts can plug one in). */
-  async exportPng(options: { scale?: number } = {}): Promise<Uint8Array> {
+  /**
+   * PNG bytes. Needs a rasterizer bridge (the desktop app has one; headless scripts can plug one in).
+   *
+   * - `scale`: pixels per CSS pixel of the drawing's own size (default 1).
+   * - `region`: only this rectangle, in root user units (viewBox coordinates). It may reach
+   *   outside the page; content there is drawn too.
+   * - `maxSize`: caps the longer side in pixels, shrinking the image to fit.
+   * - `background`: a CSS colour painted under the drawing (default: transparent).
+   */
+  async exportPng(options: ExportPngOptions = {}): Promise<Uint8Array> {
     const rasterize = this.bridges.rasterize;
     if (!rasterize) {
       throw new SvgEditorError("NO_RASTERIZER", "No rasterizer is available to draw PNGs.", "Pass `rasterize` to createEditor() or setBridges(); in the desktop app it is set up for you.");
     }
-    const scale = options.scale ?? 1;
-    const size = this.intrinsicSize();
-    let svg = this.toSvg();
-    if (!/^<svg[^>]*\sxmlns=/.test(svg)) svg = svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    const { svg, width, height } = this.exportSvg(options);
     try {
-      return await rasterize(svg, { width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) });
+      return await rasterize(svg, { width, height });
     } catch (e) {
       throw new SvgEditorError("EXPORT_FAILED", `PNG export failed: ${(e as Error).message}`, "Check that the drawing renders; external images are not loaded.");
     }
+  }
+
+  /** @internal The SVG text and pixel size exportPng() rasterizes. */
+  exportSvg(options: ExportPngOptions = {}): { svg: string; width: number; height: number } {
+    const scale = options.scale ?? 1;
+    if (!(scale > 0) || !Number.isFinite(scale)) throw new SvgEditorError("INVALID_REGION", `scale must be a positive number, got ${scale}.`, "Use e.g. { scale: 2 }.");
+    const size = this.intrinsicSize();
+    const rootNode = this.model.getNode(this.model.root)!;
+    const vb = (rootNode.attrs.viewBox ?? "").trim().split(/[\s,]+/).map(Number);
+    const page = vb.length === 4 && vb.every(Number.isFinite) && vb[2]! > 0 && vb[3]! > 0
+      ? { x: vb[0]!, y: vb[1]!, width: vb[2]!, height: vb[3]! }
+      : { x: 0, y: 0, width: size.width, height: size.height };
+    const r = options.region;
+    if (r && !(Number.isFinite(r.x) && Number.isFinite(r.y) && r.width > 0 && r.height > 0 && Number.isFinite(r.width) && Number.isFinite(r.height))) {
+      throw new SvgEditorError("INVALID_REGION", `The region ${JSON.stringify(r)} is not a rectangle with positive width and height.`, `Use root user units, e.g. the page is ${JSON.stringify(page)}.`);
+    }
+    const area = r ?? page;
+    // Whole drawing: its own size (and its own viewBox/aspect handling). Region: the same
+    // pixels per user unit as the drawing at its own size.
+    let width = r ? r.width * (size.width / page.width) * scale : size.width * scale;
+    let height = r ? r.height * (size.height / page.height) * scale : size.height * scale;
+    const max = options.maxSize;
+    if (max !== undefined && max > 0 && Math.max(width, height) > max) {
+      const k = max / Math.max(width, height);
+      width *= k;
+      height *= k;
+    }
+    width = Math.max(1, Math.round(width));
+    height = Math.max(1, Math.round(height));
+
+    const f = formatNumber;
+    const bgId = "__export_background";
+    const get = (id: NodeId): SvgNode => {
+      if (id === bgId) {
+        return { id, tag: "rect", attrs: { x: f(area.x), y: f(area.y), width: f(area.width), height: f(area.height), fill: options.background! }, children: [], parent: this.model.root };
+      }
+      const n = this.model.getNode(id)!;
+      if (id !== this.model.root) return n;
+      const attrs: Record<string, string> = { xmlns: "http://www.w3.org/2000/svg", ...n.attrs };
+      if (r) {
+        attrs.viewBox = `${f(area.x)} ${f(area.y)} ${f(area.width)} ${f(area.height)}`;
+        attrs.preserveAspectRatio = "none";
+        attrs.width = String(width);
+        attrs.height = String(height);
+      }
+      return { ...n, attrs, children: options.background ? [bgId, ...n.children] : n.children };
+    };
+    return { svg: serialize(get, this.model.root), width, height };
   }
 
   /** @internal */

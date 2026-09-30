@@ -8,11 +8,22 @@ export interface ToolTarget {
   editor: Editor;
   /** Runs several writes as one unit (the lock session's batch). */
   batch<T>(fn: () => T): T;
+  /** Snapshots still allowed this turn (render_snapshot); unlimited when absent. */
+  snapshotBudget?: { left: number };
+}
+
+/** A PNG for the model to look at, base64-encoded. */
+export interface ToolImage {
+  mediaType: "image/png";
+  data: string;
 }
 
 export type ToolOutcome =
-  | { ok: true; result: unknown }
+  | { ok: true; result: unknown; image?: ToolImage }
   | { ok: false; error: { code: string; message: string; hint: string } };
+
+/** Longest side of a snapshot, in pixels. */
+export const SNAPSHOT_MAX_SIZE = 1024;
 
 const MAX_OUTLINE_NODES = 400;
 const MAX_ATTR_CHARS = 120;
@@ -22,7 +33,7 @@ const MAX_ATTR_CHARS = 120;
  * calls the SDK. Never throws: every failure becomes a structured error the
  * model can read and correct from.
  */
-export function dispatch(target: ToolTarget, name: string, input: unknown): ToolOutcome {
+export async function dispatch(target: ToolTarget, name: string, input: unknown): Promise<ToolOutcome> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool) {
     return fail("UNKNOWN_TOOL", `There is no tool named "${name}".`, `Available tools: ${TOOLS.map((t) => t.name).join(", ")}.`);
@@ -30,12 +41,14 @@ export function dispatch(target: ToolTarget, name: string, input: unknown): Tool
   const problem = validate(input ?? {}, tool.input_schema);
   if (problem) return fail("INVALID_INPUT", problem, `Call ${name} again with input that matches its schema.`);
   try {
-    return { ok: true, result: HANDLERS[name]!(target, (input ?? {}) as never) };
+    const value = await HANDLERS[name]!(target, (input ?? {}) as never);
+    return value instanceof WithImage ? { ok: true, result: value.result, image: value.image } : { ok: true, result: value };
   } catch (e) {
     if (e instanceof SvgEditorError) {
       const j = e.toJSON();
       return fail(j.code, j.message, j.hint);
     }
+    if (e instanceof ToolError) return fail(e.code, e.message, e.hint);
     return fail("INTERNAL", e instanceof Error ? e.message : String(e), "This is a bug in the editor; try a different approach.");
   }
 }
@@ -46,6 +59,24 @@ function fail(code: string, message: string, hint: string): ToolOutcome {
 
 /** Inputs are validated against the tool schema before a handler runs. */
 type Handler = (t: ToolTarget, input: never) => unknown;
+
+/** A tool-level failure that is not an SDK error (e.g. a per-turn limit). */
+class ToolError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly hint: string,
+  ) {
+    super(message);
+  }
+}
+
+class WithImage {
+  constructor(
+    readonly result: unknown,
+    readonly image: ToolImage,
+  ) {}
+}
 
 const HANDLERS: Record<string, Handler> = {
   get_document: (t) => {
@@ -206,11 +237,55 @@ const HANDLERS: Record<string, Handler> = {
     return { distributed: items.map((i) => i.id), axis: input.axis };
   },
 
+  render_snapshot: async (t, input: { region?: BBox; ids?: NodeId[]; padding?: number }) => {
+    if (t.snapshotBudget && t.snapshotBudget.left <= 0) {
+      throw new ToolError("SNAPSHOT_LIMIT", "No snapshots are left for this turn.", "Finish with what you have and tell the user what to check.");
+    }
+    let region = input.region;
+    if (!region && input.ids?.length) {
+      const boxes = input.ids.map((i) => t.doc.getBBox(i, "root"));
+      const x0 = Math.min(...boxes.map((b) => b.x));
+      const y0 = Math.min(...boxes.map((b) => b.y));
+      const x1 = Math.max(...boxes.map((b) => b.x + b.width));
+      const y1 = Math.max(...boxes.map((b) => b.y + b.height));
+      const pad = input.padding ?? Math.max(x1 - x0, y1 - y0, 1) * 0.1;
+      region = { x: x0 - pad, y: y0 - pad, width: Math.max(x1 - x0, 1e-3) + 2 * pad, height: Math.max(y1 - y0, 1e-3) + 2 * pad };
+    }
+    const png = await t.editor.exportPng({ ...(region ? { region } : {}), maxSize: SNAPSHOT_MAX_SIZE, background: "white" });
+    if (t.snapshotBudget) t.snapshotBudget.left--;
+    const size = pngSize(png);
+    return new WithImage(
+      { width: size.width, height: size.height, region: region ? round(region) : "whole page", note: "White background added for the snapshot; the drawing itself may be transparent." },
+      { mediaType: "image/png", data: toBase64(png) },
+    );
+  },
+
   select_elements: (t, input: { ids: NodeId[] }) => {
     t.editor.select(input.ids);
     return { selection: t.editor.getSelection() };
   },
 };
+
+/** Width and height from a PNG's IHDR chunk. */
+function pngSize(png: Uint8Array): { width: number; height: number } {
+  if (png.length < 24) return { width: 0, height: 0 };
+  const v = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  return { width: v.getUint32(16), height: v.getUint32(20) };
+}
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function toBase64(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1];
+    const c = bytes[i + 2];
+    out += B64[a >> 2]! + B64[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
+    out += b === undefined ? "=" : B64[((b & 15) << 2) | ((c ?? 0) >> 6)]!;
+    out += c === undefined ? "=" : B64[c & 63]!;
+  }
+  return out;
+}
 
 function shortAttrs(attrs: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};

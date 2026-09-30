@@ -20,6 +20,7 @@ const api: DesktopApi = {
     getSettings: () => ipcRenderer.invoke("ai:getSettings"),
     saveSettings: (update: AiSettingsUpdate) => ipcRenderer.invoke("ai:saveSettings", update),
     test: (update: AiSettingsUpdate) => ipcRenderer.invoke("ai:test", update),
+    listModels: (update: AiSettingsUpdate) => ipcRenderer.invoke("ai:listModels", update),
     run: (turnId: string, text: string) => ipcRenderer.invoke("ai:run", turnId, text),
     stop: () => ipcRenderer.send("ai:stop"),
     reset: () => ipcRenderer.invoke("ai:reset"),
