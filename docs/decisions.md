@@ -160,3 +160,15 @@
 | Snapshot size | Always scaled to 1024 px on the long side (`exportPng({ longSide })`), so small drawings are enlarged. | A 200x120 page was sent as 400x240 px, too small to judge details. |
 | Chat text | Each model response in a turn starts a new paragraph. | Replies ran together ("…text ring.Created a circular…"). |
 | Limits | Quality depends mostly on the model; the app cannot make a weak model draw well. | Compare models with the same request. |
+
+## Phase 2, step 4: path editing
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Library | `svgpath` (MIT) in `packages/model` for parsing and normalizing path data. Pure JS, no DOM. | User's choice. It has no geometry kernel, so **boolean operations and simplify are not done**; they need paper.js or a polygon clipper (a later decision). |
+| Commands | `pathEdit` (move end/control points by segment index; handles follow unless `handles: false`; moving a subpath start also moves an explicit closing point on it) and `convertToPath` (rect incl. rounded corners, circle, ellipse, line, polyline, polygon). Both compile to existing mutations, so undo, minimal text patches and the parser need no changes; the corpus fuzzer runs them. | Plan: `pathEdit` command. |
+| Path data form | An edit rewrites that path's `d` in absolute form (H/V become L, S/T become C/Q, arcs stay arcs); nothing else in the file changes. | Node editing needs absolute points; only the edited attribute is touched. |
+| New IDs | `convertToPath` creates a new node (a tag change is not a mutation); attributes keep their order, children and position are kept. | Revisit if stable IDs across conversion matter. |
+| Canvas | Double-click a path (or Enter / Edit > Edit Path Nodes) shows nodes (squares) and control points (circles, dashed handle lines). A drag previews in the DOM and commits one `pathEdit` on release; Alt moves a point without its handles; snapping applies. Esc leaves; Delete does nothing in this mode. Edit > Convert to Path (Ctrl+Shift+C) converts the selection in one undo step and enters node editing for a single shape. | Same one-gesture-one-command rule as other canvas gestures. |
+| Not yet | Adding/deleting nodes, changing segment types, booleans, simplify, headless bbox for paths (still needs the measure bridge). | |
+| AI | Tools `convert_to_path`, `edit_path`; `get_element` includes a path's `segments`. | Parity with the UI. |

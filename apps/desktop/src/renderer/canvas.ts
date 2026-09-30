@@ -1,4 +1,4 @@
-import type { BBox, Command, Editor, NodeId } from "@svg-editor/sdk";
+import { formatPath, movePathPoints, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathPoint, type PathSegment } from "@svg-editor/sdk";
 import {
   angleBetween,
   anchorPoint,
@@ -36,7 +36,8 @@ type Gesture =
   | { kind: "rotate"; center: Point; start: Point; items: Item[] }
   | { kind: "marquee"; start: Point; additive: boolean; rect: SVGRectElement }
   | { kind: "draw"; tool: Exclude<Tool, "select" | "text">; start: Point; el: SVGElement }
-  | { kind: "pan"; start: Point; scroll: Point };
+  | { kind: "pan"; start: Point; scroll: Point }
+  | { kind: "node"; id: NodeId; el: SVGGraphicsElement; segs: PathSegment[]; seg: number; point: PathPoint; inv: Mat; original: string | null; move?: PathMove; handles: boolean };
 
 /** Grid snapping, provided by the viewport. */
 export interface Snapper {
@@ -73,6 +74,10 @@ export class CanvasController {
   private spaceDown = false;
   snapper: Snapper = { snapping: false, snapRoot: (p) => p };
   private unsubscribe: () => void;
+  /** Node editing: the path whose points are shown and draggable. */
+  private nodeEdit: NodeId | null = null;
+  /** Told when node editing starts or ends (for a status hint). */
+  onNodeEdit: (editing: boolean) => void = () => {};
 
   constructor(
     private readonly host: HTMLElement,
@@ -80,7 +85,8 @@ export class CanvasController {
     private editor: Editor,
     private readonly onTool: (tool: Tool) => void,
   ) {
-    this.unsubscribe = editor.onSelectionChange(() => this.drawOverlay());
+    this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
+    host.addEventListener("dblclick", (e) => this.doubleClick(e));
     host.addEventListener("keyup", (e) => {
       if (e.key === " ") this.spaceDown = false;
     });
@@ -98,8 +104,9 @@ export class CanvasController {
     this.cancelGesture();
     this.closeText();
     this.unsubscribe();
+    this.exitNodeEdit();
     this.editor = editor;
-    this.unsubscribe = editor.onSelectionChange(() => this.drawOverlay());
+    this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
     this.render();
   }
 
@@ -112,6 +119,102 @@ export class CanvasController {
   interrupt(): void {
     this.cancelGesture();
     this.closeText();
+    this.exitNodeEdit();
+  }
+
+  // ------------------------------------------------------------ node editing
+
+  get editingNodes(): NodeId | null {
+    return this.nodeEdit;
+  }
+
+  /** Shows the points of a <path> for dragging. Returns false if `id` is not an editable path. */
+  editNodes(id: NodeId): boolean {
+    if (!this.editor.doc.has(id) || this.editor.doc.getNode(id).tag !== "path") return false;
+    try {
+      this.editor.doc.getPath(id);
+    } catch {
+      return false; // unreadable path data
+    }
+    this.nodeEdit = id;
+    if (this.selection.length !== 1 || this.selection[0] !== id) this.select([id]);
+    this.onNodeEdit(true);
+    this.drawOverlay();
+    return true;
+  }
+
+  exitNodeEdit(): void {
+    if (this.nodeEdit === null) return;
+    this.nodeEdit = null;
+    this.onNodeEdit(false);
+    this.drawOverlay();
+  }
+
+  private selectionChanged(): void {
+    const sel = this.selection;
+    if (this.nodeEdit !== null && (sel.length !== 1 || sel[0] !== this.nodeEdit)) this.exitNodeEdit();
+    this.drawOverlay();
+  }
+
+  private doubleClick(e: MouseEvent): void {
+    if (this._tool !== "select") return;
+    const hit = this.pick(e.target, true);
+    if (hit && this.editor.doc.getNode(hit).tag === "path") this.editNodes(hit);
+  }
+
+  /** Node and control-point positions of the edited path, in screen space. */
+  private drawNodes(o: SVGSVGElement, local: (p: Point) => Point): void {
+    const id = this.nodeEdit!;
+    const el = this.elOf.get(id);
+    const ctm = el?.getScreenCTM();
+    let segs: PathSegment[];
+    try {
+      segs = this.gesture?.kind === "node" && this.gesture.move ? movePathPoints(this.gesture.segs, [this.gesture.move], this.gesture.handles) : this.editor.doc.getPath(id);
+    } catch {
+      this.exitNodeEdit();
+      return;
+    }
+    if (!el || !ctm) return;
+    const m = mat(ctm);
+    const s = (v: [number, number]) => local(apply(m, { x: v[0], y: v[1] }));
+    const line = (a: Point, b: Point) => o.appendChild(svgEl("line", { class: "ctrl-line", x1: a.x, y1: a.y, x2: b.x, y2: b.y }));
+    const ctrl = (seg: number, point: PathPoint, at: Point) => o.appendChild(svgEl("circle", { class: "handle ctrl", "data-node": `${seg}:${point}`, cx: at.x, cy: at.y, r: 4 }));
+    let prev: Point | null = null;
+    let start: Point | null = null;
+    const nodes: [number, Point][] = [];
+    segs.forEach((seg, i) => {
+      if (seg.cmd === "Z") {
+        prev = start;
+        return;
+      }
+      const end = s(seg.p);
+      if (seg.cmd === "M") start = end;
+      if (seg.cmd === "C") {
+        const c1 = s(seg.c1);
+        const c2 = s(seg.c2);
+        if (prev) line(prev, c1);
+        line(end, c2);
+        ctrl(i, "c1", c1);
+        ctrl(i, "c2", c2);
+      } else if (seg.cmd === "Q") {
+        const c = s(seg.c);
+        if (prev) line(prev, c);
+        line(end, c);
+        ctrl(i, "c", c);
+      }
+      nodes.push([i, end]);
+      prev = end;
+    });
+    for (const [i, p] of nodes) o.appendChild(svgEl("rect", { class: "handle node", "data-node": `${i}:p`, x: p.x - 4, y: p.y - 4, width: 8, height: 8 }));
+  }
+
+  private startNodeDrag(ref: string): void {
+    const id = this.nodeEdit;
+    const el = id ? this.elOf.get(id) : undefined;
+    const ctm = el?.getScreenCTM();
+    if (!id || !el || !ctm) return;
+    const [seg, point] = ref.split(":") as [string, PathPoint];
+    this.gesture = { kind: "node", id, el, segs: this.editor.doc.getPath(id), seg: Number(seg), point, inv: invert(mat(ctm)), original: el.getAttribute("d"), handles: true };
   }
 
   /** Redraws selection outlines (after zoom or scroll). */
@@ -245,6 +348,10 @@ export class CanvasController {
     const local = (p: Point): Point => ({ x: p.x - origin.left, y: p.y - origin.top });
     const keep = this.gesture?.kind === "marquee" ? this.gesture.rect : null;
     o.replaceChildren(...(keep ? [keep] : []));
+    if (this.nodeEdit !== null) {
+      this.drawNodes(o, local);
+      return;
+    }
     const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
     if (items.length === 0 || this.gesture?.kind === "draw") return;
 
@@ -289,6 +396,12 @@ export class CanvasController {
     if (e.button !== 0) return;
     if (this.textInput) this.commitText();
     this.host.focus({ preventScroll: true });
+    const node = e.target instanceof Element ? e.target.getAttribute("data-node") : null;
+    if (node && this.nodeEdit !== null) {
+      e.preventDefault();
+      this.startNodeDrag(node);
+      return;
+    }
     const handle = e.target instanceof Element ? e.target.getAttribute("data-handle") : null;
     if (handle && this.selection.length > 0) {
       e.preventDefault();
@@ -304,6 +417,11 @@ export class CanvasController {
       e.preventDefault();
       this.startDraw(this._tool, p);
       return;
+    }
+    if (this.nodeEdit !== null && this.pick(e.target, true) !== this.nodeEdit) this.exitNodeEdit();
+    if (this.nodeEdit !== null) {
+      e.preventDefault();
+      return; // clicks on the edited path itself do nothing; drag its points
     }
     const hit = this.pick(e.target, e.ctrlKey || e.metaKey);
     if (hit) {
@@ -370,6 +488,16 @@ export class CanvasController {
     if (g.kind === "pan") {
       this.host.scrollLeft = g.scroll.x - (p.x - g.start.x);
       this.host.scrollTop = g.scroll.y - (p.y - g.start.y);
+      return;
+    }
+    if (g.kind === "node") {
+      // Snap in drawing units, then into the path's own coordinates.
+      const snapped = this.snapper.snapping && this.svg?.getScreenCTM() ? apply(mat(this.svg.getScreenCTM()!), this.snapper.snapRoot(this.toRoot(p))) : p;
+      const q = apply(g.inv, snapped);
+      g.handles = !e.altKey;
+      g.move = { seg: g.seg, point: g.point, to: [round(q.x), round(q.y)] };
+      g.el.setAttribute("d", formatPath(movePathPoints(g.segs, [g.move], g.handles)));
+      this.drawOverlay();
       return;
     }
     switch (g.kind) {
@@ -443,6 +571,16 @@ export class CanvasController {
     switch (g.kind) {
       case "pan":
         return;
+      case "node": {
+        if (!g.move) return;
+        const r = this.editor.execute({ op: "pathEdit", id: g.id, moves: [g.move], handles: g.handles });
+        if (!r.ok) {
+          restoreD(g.el, g.original);
+          console.warn("path edit failed", r.error);
+        }
+        this.drawOverlay();
+        return;
+      }
       case "move":
       case "resize":
       case "rotate": {
@@ -488,6 +626,7 @@ export class CanvasController {
     if (g.kind === "marquee") g.rect.remove();
     else if (g.kind === "draw") g.el.remove();
     else if (g.kind === "pan") return true;
+    else if (g.kind === "node") restoreD(g.el, g.original);
     else for (const it of g.items) restore(it);
     this.drawOverlay();
     return true;
@@ -547,12 +686,19 @@ export class CanvasController {
       return;
     }
     if (e.key === "Escape") {
-      if (!this.cancelGesture()) this.select([]);
+      if (this.cancelGesture()) return;
+      if (this.nodeEdit !== null) this.exitNodeEdit();
+      else this.select([]);
+      return;
+    }
+    if (e.key === "Enter" && this.nodeEdit === null && this.selection.length === 1) {
+      if (this.editNodes(this.selection[0]!)) e.preventDefault();
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
+      if (this.nodeEdit !== null) return; // deleting single nodes is not supported yet; don't delete the path
       this.deleteSelection();
       return;
     }
@@ -582,6 +728,11 @@ function isLayer(attrs: Record<string, string>): boolean {
 
 function join(a: string | null | undefined, b: string | null | undefined): string {
   return [a, b].filter((s) => s && s.trim() !== "").join(" ");
+}
+
+function restoreD(el: Element, d: string | null): void {
+  if (d === null) el.removeAttribute("d");
+  else el.setAttribute("d", d);
 }
 
 function restore(it: Item): void {

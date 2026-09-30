@@ -46,6 +46,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 #overlay .sel-outline { fill: none; stroke: var(--accent); stroke-width: 1; }
 #overlay .sel-group { fill: none; stroke: var(--accent); stroke-dasharray: 4 3; }
 #overlay .sel-stem { stroke: var(--accent); }
+#overlay .handle.node { cursor: move; }
+#overlay .handle.ctrl { fill: var(--accent); stroke: #fff; cursor: move; }
+#overlay .ctrl-line { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 2; }
 #overlay .marquee { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-dasharray: 3 2; }
 #canvas:focus { outline: none; }
 #canvas[data-tool="rect"], #canvas[data-tool="ellipse"], #canvas[data-tool="line"] { cursor: crosshair; }

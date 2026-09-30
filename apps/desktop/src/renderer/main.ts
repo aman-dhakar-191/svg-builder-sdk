@@ -373,6 +373,8 @@ const viewport = new Viewport(canvasHost, document.getElementById("grid") as unk
   canvas.refresh();
 });
 canvas.snapper = viewport;
+canvas.onNodeEdit = (on) =>
+  on ? showStatus("Editing path nodes: drag points and handles (Alt: move a point without its handles). Esc to finish.", false) : showSelectionStatus(editor.getSelection());
 canvasHost.addEventListener("scroll", () => viewport.drawGrid());
 
 const reportError = (message: string) => showStatus(message, true);
@@ -423,6 +425,26 @@ const menu: Record<MenuAction, () => void> = {
   saveAndClose: () => guard(() => void save(false).then((ok) => ok && window.desktop.closeWindow())),
   exportPng: () => guard(() => void exportPng()),
   simulateAiTurn: () => void simulateAiTurn(),
+  convertToPath: () =>
+    guard(() => {
+      flush();
+      const ids = editor.getSelection();
+      if (ids.length === 0) return showStatus("Select the shapes to convert first.", true);
+      let paths: string[];
+      try {
+        paths = editor.batch(() => ids.map((id) => editor.doc.convertToPath(id))); // one undo step
+      } catch (e) {
+        return showStatus(e instanceof Error ? e.message : String(e), true);
+      }
+      editor.select(paths);
+      if (paths.length === 1) canvas.editNodes(paths[0]!);
+      else showStatus(`Converted ${paths.length} shapes to paths.`, false);
+    }),
+  editNodes: () =>
+    guard(() => {
+      const ids = editor.getSelection();
+      if (ids.length !== 1 || !canvas.editNodes(ids[0]!)) showStatus("Select one path to edit its nodes (convert shapes first with Edit > Convert to Path).", true);
+    }),
   zoomIn: () => viewport.zoomIn(),
   zoomOut: () => viewport.zoomOut(),
   zoom100: () => viewport.setZoom(1),

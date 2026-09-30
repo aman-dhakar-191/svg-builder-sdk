@@ -1,4 +1,4 @@
-import { SvgEditorError, TEXT_TAG, type BBox, type DocumentApi, type Editor, type NodeId, type TreeNode } from "@svg-editor/sdk";
+import { SvgEditorError, TEXT_TAG, type BBox, type DocumentApi, type Editor, type NodeId, type PathMove, type TreeNode } from "@svg-editor/sdk";
 import { TOOLS } from "./tools.js";
 import { validate } from "./validate.js";
 
@@ -131,11 +131,20 @@ const HANDLERS: Record<string, Handler> = {
     } catch {
       bbox = null;
     }
+    let segments: unknown;
+    if (n.tag === "path") {
+      try {
+        segments = t.doc.getPath(input.id);
+      } catch {
+        segments = undefined; // unreadable d: the attribute is still shown
+      }
+    }
     return {
       id: n.id,
       tag: n.tag,
       attributes: n.attrs,
       ...(text ? { text } : {}),
+      ...(segments ? { segments } : {}),
       parent: n.parent,
       children: n.children.filter((c) => t.doc.getNode(c).tag !== TEXT_TAG),
       bbox,
@@ -196,6 +205,13 @@ const HANDLERS: Record<string, Handler> = {
     });
     return { id: input.id, transform };
   },
+
+  convert_to_path: (t, input: { ids: NodeId[] }) => ({ ids: t.batch(() => input.ids.map((i) => t.doc.convertToPath(i))) }),
+
+  edit_path: (t, input: { id: NodeId; moves: PathMove[]; keep_handles?: boolean }) => ({
+    id: input.id,
+    d: t.doc.pathEdit(input.id, input.moves, input.keep_handles === undefined ? {} : { handles: input.keep_handles }),
+  }),
 
   set_text: (t, input: { id: NodeId; text: string }) => {
     t.doc.setText(input.id, input.text);

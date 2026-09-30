@@ -118,6 +118,36 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "convert_to_path",
+    description: "Replaces basic shapes (rect, circle, ellipse, line, polyline, polygon) by equivalent <path> elements, so their outline can be edited point by point. Returns the new IDs (the old IDs are gone).",
+    input_schema: { type: "object", properties: { ids: ids() }, required: ["ids"], additionalProperties: false },
+  },
+  {
+    name: "edit_path",
+    description:
+      'Moves points of a <path>. Get its segments with get_element (field "segments": absolute M, L, C, Q, A, Z, indexed from 0). point: "p" = the segment\'s end point, "c1"/"c2" = control points of a C, "c" = control point of a Q. Coordinates are in the path\'s own units. Moving an end point also moves its handles unless keep_handles is false. To reshape a path completely, set its "d" with set_attributes instead.',
+    input_schema: {
+      type: "object",
+      properties: {
+        id,
+        moves: {
+          type: "array",
+          minItems: 1,
+          maxItems: 500,
+          items: {
+            type: "object",
+            properties: { seg: { type: "integer" }, point: { type: "string", enum: ["p", "c1", "c2", "c"] }, to: vec2 },
+            required: ["seg", "point", "to"],
+            additionalProperties: false,
+          },
+        },
+        keep_handles: { type: "boolean", description: "Default true: handles move with their end point." },
+      },
+      required: ["id", "moves"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "set_text",
     description: "Replaces the text content of an element such as <text>.",
     input_schema: { type: "object", properties: { id, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },

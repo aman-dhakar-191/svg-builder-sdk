@@ -139,6 +139,23 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
       expect(ed.text).toBe(SRC);
     },
   },
+  {
+    ui: "Convert to Path",
+    sdk: "doc.convertToPath(id)",
+    run: (ed) => {
+      const p = ed.doc.convertToPath(byAttr(ed, "a"));
+      expect(ed.doc.getNode(p)).toMatchObject({ tag: "path", attrs: { id: "a", d: "M10 10 H30 V30 H10 Z" } });
+    },
+  },
+  {
+    ui: "Drag path nodes and handles (node editing)",
+    sdk: "doc.getPath(id), doc.pathEdit(id, moves)",
+    run: (ed) => {
+      const p = ed.doc.convertToPath(byAttr(ed, "a"));
+      expect(ed.doc.getPath(p)[1]).toEqual({ cmd: "L", p: [30, 10] });
+      expect(ed.doc.pathEdit(p, [{ seg: 1, point: "p", to: [40, 5] }])).toBe("M10 10 L40 5 L30 30 L10 30 Z");
+    },
+  }
 ];
 
 /** UI features that change only the view, not the document. Nothing to expose in the SDK. */
@@ -165,6 +182,8 @@ const MAPPED: Record<string, string> = {
   line: "Rect / ellipse / line tools",
   text: "Text tool",
   simulateAiTurn: "AI turn / Debug > Simulate AI turn (editor locked)",
+  convertToPath: "Convert to Path",
+  editNodes: "Drag path nodes and handles (node editing)",
 };
 
 describe("UI cannot bypass the SDK", () => {
