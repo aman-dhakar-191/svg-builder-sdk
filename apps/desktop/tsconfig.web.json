@@ -3,10 +3,19 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "types": [],
-    "customConditions": ["source"],
+    "customConditions": [
+      "source"
+    ],
     "noEmit": true
   },
-  "include": ["src/renderer"]
+  "include": [
+    "src/renderer",
+    "src/shared"
+  ]
 }

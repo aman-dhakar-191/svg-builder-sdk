@@ -20,13 +20,31 @@
           <button data-tool="ellipse" title="Ellipse (E)">Ellipse</button>
           <button data-tool="line" title="Line (L)">Line</button>
           <button data-tool="text" title="Text (T)">Text</button>
+          <span class="spacer"></span>
+          <button data-view="grid" title="Show grid (Ctrl+')">Grid</button>
+          <button data-view="snap" title="Snap to grid (Ctrl+Shift+')">Snap</button>
+          <button data-view="zoomOut" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
+          <output id="zoom" title="Zoom">100%</output>
+          <button data-view="zoomIn" title="Zoom in (Ctrl+=)" aria-label="Zoom in">+</button>
+          <button data-view="fit" title="Fit (Ctrl+0)">Fit</button>
         </div>
         <div class="stage">
           <div id="canvas" tabindex="0" data-tool="select"></div>
+          <svg id="grid" aria-hidden="true"></svg>
           <svg id="overlay" aria-hidden="true"></svg>
         </div>
         <div id="status" role="status"></div>
       </section>
+      <aside class="pane sidebar">
+        <section class="panel layers-panel" aria-label="Layers">
+          <h2>Layers</h2>
+          <div id="layers" role="tree"></div>
+        </section>
+        <section class="panel props-panel" aria-label="Properties">
+          <h2>Properties</h2>
+          <div id="props"></div>
+        </section>
+      </aside>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

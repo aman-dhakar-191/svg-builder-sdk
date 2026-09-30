@@ -37,7 +37,14 @@ type Gesture =
   | { kind: "resize"; handle: Handle; items: Item[]; box: Rect; local: boolean }
   | { kind: "rotate"; center: Point; start: Point; items: Item[] }
   | { kind: "marquee"; start: Point; additive: boolean; rect: SVGRectElement }
-  | { kind: "draw"; tool: Exclude<Tool, "select" | "text">; start: Point; el: SVGElement };
+  | { kind: "draw"; tool: Exclude<Tool, "select" | "text">; start: Point; el: SVGElement }
+  | { kind: "pan"; start: Point; scroll: Point };
+
+/** Grid snapping, provided by the viewport. */
+export interface Snapper {
+  readonly snapping: boolean;
+  snapRoot(p: Point): Point;
+}
 
 /** A selected element during a gesture, with what is needed to preview and commit. */
 interface Item {
@@ -66,14 +73,19 @@ export class CanvasController {
   private gesture: Gesture | null = null;
   private _tool: Tool = "select";
   private textInput: HTMLInputElement | null = null;
+  private spaceDown = false;
+  snapper: Snapper = { snapping: false, snapRoot: (p) => p };
 
   constructor(
     private readonly host: HTMLElement,
     private readonly overlay: SVGSVGElement,
-    private readonly source: SourceDocument,
+    private source: SourceDocument,
     private readonly onSelection: (ids: NodeId[]) => void,
     private readonly onTool: (tool: Tool) => void,
   ) {
+    host.addEventListener("keyup", (e) => {
+      if (e.key === " ") this.spaceDown = false;
+    });
     host.addEventListener("pointerdown", (e) => this.pointerDown(e));
     overlay.addEventListener("pointerdown", (e) => this.pointerDown(e));
     window.addEventListener("pointermove", (e) => this.pointerMove(e));
@@ -81,6 +93,21 @@ export class CanvasController {
     host.addEventListener("keydown", (e) => this.keyDown(e));
     new ResizeObserver(() => this.drawOverlay()).observe(host);
     host.addEventListener("scroll", () => this.drawOverlay());
+  }
+
+  /** Switches to another document (after Open / New). Selection and gestures reset. */
+  setSource(source: SourceDocument): void {
+    this.cancelGesture();
+    this.closeText();
+    this.source = source;
+    this.selection = [];
+    this.render();
+    this.onSelection([]);
+  }
+
+  /** Redraws selection outlines (after zoom or scroll). */
+  refresh(): void {
+    this.drawOverlay();
   }
 
   get tool(): Tool {
@@ -251,10 +278,16 @@ export class CanvasController {
   // ------------------------------------------------------------ pointer
 
   private pointerDown(e: PointerEvent): void {
+    const p = this.screenPoint(e);
+    // Pan: middle button, or Space + drag.
+    if (e.button === 1 || (e.button === 0 && this.spaceDown)) {
+      e.preventDefault();
+      this.gesture = { kind: "pan", start: p, scroll: { x: this.host.scrollLeft, y: this.host.scrollTop } };
+      return;
+    }
     if (e.button !== 0) return;
     if (this.textInput) this.commitText();
     this.host.focus({ preventScroll: true });
-    const p = this.screenPoint(e);
     const handle = e.target instanceof Element ? e.target.getAttribute("data-handle") : null;
     if (handle && this.selection.length > 0) {
       e.preventDefault();
@@ -310,8 +343,18 @@ export class CanvasController {
     const tag = tool === "rect" ? "rect" : tool === "ellipse" ? "ellipse" : "line";
     const el = svgEl(tag, tool === "line" ? { stroke: DRAW_STYLE.stroke, "stroke-width": "2" } : { ...DRAW_STYLE });
     this.svg.appendChild(el);
-    this.gesture = { kind: "draw", tool, start: this.toRoot(p), el };
+    this.gesture = { kind: "draw", tool, start: this.snapper.snapRoot(this.toRoot(p)), el };
     this.select([], true);
+  }
+
+  /** Adjusts a screen drag so the selection's top-left corner lands on the grid. */
+  private snapDelta(items: Item[], d: Point): Point {
+    if (items.length === 0 || !this.svg) return d;
+    const topLeft = boundsOf(items.flatMap((i) => this.screenCorners(i)));
+    const from = this.toRoot({ x: topLeft.x, y: topLeft.y });
+    const to = this.snapper.snapRoot(this.toRoot({ x: topLeft.x + d.x, y: topLeft.y + d.y }));
+    const ctm = this.svg.getScreenCTM();
+    return ctm ? applyLinear(mat(ctm), { x: to.x - from.x, y: to.y - from.y }) : d;
   }
 
   private toRoot(p: Point): Point {
@@ -323,12 +366,18 @@ export class CanvasController {
     const g = this.gesture;
     if (!g) return;
     const p = this.screenPoint(e);
+    if (g.kind === "pan") {
+      this.host.scrollLeft = g.scroll.x - (p.x - g.start.x);
+      this.host.scrollTop = g.scroll.y - (p.y - g.start.y);
+      return;
+    }
     switch (g.kind) {
       case "move": {
         const d = { x: p.x - g.start.x, y: p.y - g.start.y };
         if (!g.moved && Math.hypot(d.x, d.y) < DRAG_THRESHOLD) return;
         g.moved = true;
-        const constrained = e.shiftKey ? (Math.abs(d.x) > Math.abs(d.y) ? { x: d.x, y: 0 } : { x: 0, y: d.y }) : d;
+        let constrained = e.shiftKey ? (Math.abs(d.x) > Math.abs(d.y) ? { x: d.x, y: 0 } : { x: 0, y: d.y }) : d;
+        if (this.snapper.snapping) constrained = this.snapDelta(g.items, constrained);
         for (const it of g.items) {
           const v = applyLinear(it.parentInv, constrained);
           const t: [number, number] = [round(v.x), round(v.y)];
@@ -375,7 +424,7 @@ export class CanvasController {
         return;
       }
       case "draw": {
-        const q = this.toRoot(p);
+        const q = this.snapper.snapRoot(this.toRoot(p));
         setAttrs(g.el, drawAttrs(g.tool, g.start, q, e.shiftKey));
         return;
       }
@@ -391,6 +440,8 @@ export class CanvasController {
     if (!g) return;
     this.gesture = null;
     switch (g.kind) {
+      case "pan":
+        return;
       case "move":
       case "resize":
       case "rotate": {
@@ -412,7 +463,7 @@ export class CanvasController {
       }
       case "draw": {
         g.el.remove();
-        const q = this.toRoot(this.screenPoint(e));
+        const q = this.snapper.snapRoot(this.toRoot(this.screenPoint(e)));
         const attrs = drawAttrs(g.tool, g.start, q, e.shiftKey);
         const size = g.tool === "line" ? Math.hypot(q.x - g.start.x, q.y - g.start.y) : Math.min(Number(attrs.width ?? attrs.rx), Number(attrs.height ?? attrs.ry));
         if (!(size > 0.5)) return;
@@ -434,6 +485,7 @@ export class CanvasController {
     this.gesture = null;
     if (g.kind === "marquee") g.rect.remove();
     else if (g.kind === "draw") g.el.remove();
+    else if (g.kind === "pan") return true;
     else for (const it of g.items) restore(it);
     this.drawOverlay();
     return true;
@@ -490,6 +542,11 @@ export class CanvasController {
   // ------------------------------------------------------------ keyboard
 
   private keyDown(e: KeyboardEvent): void {
+    if (e.key === " ") {
+      this.spaceDown = true;
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape") {
       if (!this.cancelGesture()) this.select([]);
       return;

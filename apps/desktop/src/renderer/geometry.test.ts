@@ -58,3 +58,23 @@ describe("helpers", () => {
     expect(Object.is(round(-0.001), 0)).toBe(true);
   });
 });
+
+describe("zoom and grid", () => {
+  it("niceStep picks 1/2/5 x 10^n", async () => {
+    const { niceStep } = await import("./geometry.js");
+    expect(niceStep(0.7)).toBe(1);
+    expect(niceStep(1.2)).toBe(2);
+    expect(niceStep(3)).toBe(5);
+    expect(niceStep(6)).toBe(10);
+    expect(niceStep(0.03)).toBeCloseTo(0.05);
+  });
+  it("steps through zoom levels and fits content", async () => {
+    const { nextZoom, fitZoom, snapPoint } = await import("./geometry.js");
+    expect(nextZoom(1, 1)).toBe(1.5);
+    expect(nextZoom(1, -1)).toBe(0.75);
+    expect(nextZoom(1.2, -1)).toBe(1);
+    expect(nextZoom(32, 1)).toBe(32);
+    expect(fitZoom({ width: 24, height: 24 }, { width: 500, height: 300 })).toBeCloseTo(252 / 24);
+    expect(snapPoint({ x: 12, y: 17 }, 5)).toEqual({ x: 10, y: 15 });
+  });
+});

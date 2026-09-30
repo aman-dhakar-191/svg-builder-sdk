@@ -5,3 +5,7 @@ export const SAMPLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 
   <text x="10" y="105" font-family="sans-serif" font-size="14">Hello, SVG</text>
 </svg>
 `;
+
+export const NEW_DOCUMENT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+</svg>
+`;

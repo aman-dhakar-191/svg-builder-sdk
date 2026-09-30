@@ -12,6 +12,8 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
+  // destroy() skips the "save changes?" prompt of edited documents.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
   await app.close();
 });
 

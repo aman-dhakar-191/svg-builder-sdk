@@ -55,3 +55,18 @@
 | Tools | Select (V), Rect (R), Ellipse (E), Line (L), Text (T). Shift constrains (square, circle, 45 degree lines, axis-locked moves, 15 degree rotation steps, proportional resize). New shapes go to the end of the root. Text: click, type, Enter; add + setText in one transaction. | Drawing into the selected group or current layer is a later refinement. |
 | Keyboard | Delete/Backspace deletes; arrows nudge 1 (Shift: 10) user units; Escape cancels or deselects; Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y work from the canvas too. | |
 | Rendering | Still a full re-render after each change. | Revisit with large files (step 5 zoom/pan is a good time). |
+
+## Phase 1, step 5: panels and file I/O
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| File access | The main process owns the file path per window, set only by the Open / Save As dialogs. The renderer sends text, never paths. | A compromised renderer cannot write arbitrary files. |
+| Line endings | Files are normalized to "\n" on open and converted back to the file's own line ending on save. | CodeMirror always works with "\n"; without this a CRLF file (Illustrator on Windows) would be rewritten with LF on every line. Found by the corpus e2e test. Mixed line endings in one file are normalized to the first style found. |
+| Unsaved changes | Dirty = code pane text differs from the last opened/saved text. Title shows "•"; closing asks Save / Don't Save / Cancel; New and Open ask before discarding. | |
+| Broken files | A file that does not parse opens in the code pane with the error marked; the canvas shows an empty drawing until it is fixed. | |
+| Layers panel | Document order, top to bottom (same as the code). Click selects, Shift toggles. Drag onto a row: upper/lower part = before/after, middle of a container = inside; one `move` command. Inkscape layers show their label. | Illustrator and Inkscape list the topmost object first (reverse order); flip if you prefer that. |
+| Properties panel | Single selection: every attribute editable (Enter / leaving the field = one `set`), × removes, an add row, and a text field for text-only elements (`setText`). Multi-selection shows a count only. | Editing common attributes across a multi-selection is a later refinement. |
+| Zoom / pan | The drawing is sized with CSS (intrinsic size x zoom); Ctrl+wheel zooms around the pointer, wheel scrolls, Space+drag or middle-drag pans. Fit on open. Menu: Ctrl+= / Ctrl+- / Ctrl+1 / Ctrl+0. | |
+| Grid and snapping | Grid spacing is a 1/2/5 x 10^n number of user units, at least 12 screen px, so it adapts to zoom and to tiny icons vs large pages. Snapping (when on) puts drawn shapes' corners and a moved selection's top-left corner on the grid. Resize and rotate do not snap (rotate has Shift for 15 degree steps). | "Basic snapping" per the plan; snapping to other objects' edges is a later step. |
+| PNG export | The model is rendered through an `<img>` into a canvas at the drawing's intrinsic size (1x). | External images referenced by URL are not included (CSP blocks remote loads). A scale option is easy to add. |
+| Shared types | The preload bridge's types live in `src/shared/api.ts`, used by preload and renderer. | The renderer must not import Electron. |

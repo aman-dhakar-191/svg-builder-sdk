@@ -12,6 +12,7 @@
     "src/main",
     "src/preload",
     "electron.vite.config.ts",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "src/shared"
   ]
 }

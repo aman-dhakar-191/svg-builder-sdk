@@ -153,3 +153,30 @@ export function round(n: number): number {
   const r = Math.round(n * 100) / 100;
   return Object.is(r, -0) ? 0 : r;
 }
+
+/** Smallest "nice" step (1, 2 or 5 x 10^n) that is at least `min`. */
+export function niceStep(min: number): number {
+  if (!(min > 0) || !Number.isFinite(min)) return 1;
+  const pow = 10 ** Math.floor(Math.log10(min));
+  for (const m of [1, 2, 5, 10]) if (m * pow >= min - 1e-12) return m * pow;
+  return 10 * pow;
+}
+
+/** Zoom levels the zoom-in / zoom-out commands step through. */
+export const ZOOM_LEVELS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 32];
+
+export function nextZoom(current: number, direction: 1 | -1): number {
+  if (direction > 0) return ZOOM_LEVELS.find((z) => z > current + 1e-9) ?? ZOOM_LEVELS[ZOOM_LEVELS.length - 1]!;
+  return [...ZOOM_LEVELS].reverse().find((z) => z < current - 1e-9) ?? ZOOM_LEVELS[0]!;
+}
+
+/** Zoom that makes `content` fit inside `view` with a margin (tiny icons get enlarged). */
+export function fitZoom(content: { width: number; height: number }, view: { width: number; height: number }, margin = 48): number {
+  if (content.width <= 0 || content.height <= 0) return 1;
+  const z = Math.min((view.width - margin) / content.width, (view.height - margin) / content.height);
+  return Math.max(0.05, Math.min(z, 32));
+}
+
+export function snapPoint(p: Point, step: number): Point {
+  return { x: snap(p.x, step), y: snap(p.y, step) };
+}
