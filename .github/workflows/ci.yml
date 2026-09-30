@@ -172,7 +172,7 @@ jobs:
         run: |
           case "$RUNNER_OS" in
             Linux)   APP="$PWD/release/linux-unpacked/svg-editor"; RUN="xvfb-run -a" ;;
-            Windows) APP="$(cygpath -w "$PWD/release/win-unpacked/svg-editor.exe")"; RUN="" ;;
+            Windows) APP="$(cygpath -w "$PWD/release/win-unpacked/SVG Editor.exe")"; RUN="" ;;
             macOS)   APP="$(ls -d "$PWD"/release/mac-arm64/*.app)/Contents/MacOS/$(ls "$(ls -d "$PWD"/release/mac-arm64/*.app)/Contents/MacOS" | head -1)"; RUN="" ;;
           esac
           echo "Testing $APP"
@@ -190,7 +190,7 @@ jobs:
           & .github/scripts/installer-wizard.ps1 -Installer $exe -OutDir "$env:RUNNER_TEMP\wizard"
           $u = "C:\Program Files\SVG Editor\Uninstall SVG Editor.exe"
           if (Test-Path $u) { Start-Process $u -ArgumentList "/S" -Wait }
-          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\SVG Editor\svg-editor.exe"); $i++) { Start-Sleep 1 }
+          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\SVG Editor\SVG Editor.exe"); $i++) { Start-Sleep 1 }
 
       - name: Upload wizard screenshots
         if: runner.os == 'Windows' && always()
@@ -209,9 +209,13 @@ jobs:
           $dir = "C:\Program Files\SVG Editor"
           $exe = (Get-ChildItem release/*.exe).FullName
           Start-Process $exe -ArgumentList "/S" -Wait
-          $app = "$dir\svg-editor.exe"
+          $app = "$dir\SVG Editor.exe"
           $links = @("$env:PUBLIC\Desktop\SVG Editor.lnk", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\SVG Editor.lnk")
-          if (-not (Test-Path $app)) { throw "not installed to $dir" }
+          if (-not (Test-Path $app)) {
+            Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+              Where-Object DisplayName -like "SVG Editor*" | Format-List DisplayName, InstallLocation, UninstallString
+            throw "not installed to $dir"
+          }
           foreach ($l in $links) { if (-not (Test-Path $l)) { throw "missing shortcut $l" } }
           $env:PACKAGED_APP = $app
           pnpm exec playwright test e2e/packaged.spec.ts

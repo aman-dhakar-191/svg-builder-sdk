@@ -3,6 +3,8 @@
 # reviewed from CI. Usage: installer-wizard.ps1 <installer.exe> <out-dir>
 param([string]$Installer, [string]$OutDir)
 $ErrorActionPreference = "Stop"
+$App = "C:\Program Files\SVG Editor\SVG Editor.exe"
+$Proc = "SVG Editor"
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $shell = New-Object -ComObject WScript.Shell
@@ -34,16 +36,16 @@ Shot "4-ready";    Press "{ENTER}"
 Start-Sleep -Milliseconds 500
 Shot "5-installing"
 # Wait for the finish page: the installer is done copying when the app exe exists and settles.
-for ($i = 0; $i -lt 120 -and -not (Test-Path "C:\Program Files\SVG Editor\svg-editor.exe"); $i++) { Start-Sleep -Seconds 1 }
+for ($i = 0; $i -lt 120 -and -not (Test-Path $App); $i++) { Start-Sleep -Seconds 1 }
 Start-Sleep -Seconds 8
 Shot "6-finished"
 # Finish with "Launch SVG Editor" ticked, so this also checks the launch; then close the app.
 Press "{ENTER}"
-for ($i = 0; $i -lt 30 -and -not (Get-Process svg-editor -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
+for ($i = 0; $i -lt 30 -and -not (Get-Process $Proc -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
 Start-Sleep -Seconds 3
 Shot "7-launched"
-if (-not (Get-Process svg-editor -ErrorAction SilentlyContinue)) { throw "Finish did not launch the app" }
-Get-Process svg-editor -ErrorAction SilentlyContinue | Stop-Process -Force
+if (-not (Get-Process $Proc -ErrorAction SilentlyContinue)) { throw "Finish did not launch the app" }
+Get-Process $Proc -ErrorAction SilentlyContinue | Stop-Process -Force
 if (-not $p.HasExited) { $p | Wait-Process -Timeout 60 }
-if (-not (Test-Path "C:\Program Files\SVG Editor\svg-editor.exe")) { throw "wizard install did not create the app" }
+if (-not (Test-Path $App)) { throw "wizard install did not create the app" }
 Write-Host "Wizard completed; screenshots in $OutDir"

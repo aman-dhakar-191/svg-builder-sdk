@@ -1,7 +1,8 @@
 # Installers are built in GitHub Actions (.github/workflows/ci.yml, "package" job).
 appId: dev.svg-editor.desktop
 productName: SVG Editor
-executableName: svg-editor
+# No top-level executableName: on Windows it would also name the install folder
+# (C:\Program Files\svg-editor). Windows and macOS use the product name; Linux sets its own.
 copyright: Copyright © aman-dhakar-191
 directories:
   output: release
