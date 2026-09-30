@@ -9,7 +9,7 @@ test("the packaged app starts, renders and has its preload bridge", async () => 
   await expect(page.locator("#canvas svg rect")).toHaveCount(1);
   await expect(page.locator(".layer-row")).toHaveCount(3);
   expect(await page.evaluate(() => typeof (window as unknown as { desktop?: { openFile?: unknown } }).desktop?.openFile)).toBe("function");
-  expect(await app.evaluate(({ app }) => app.getName())).toBe("SVG Editor");
+  expect(await app.evaluate(({ app }) => app.getName())).toBe("Curvant");
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
   await app.close();
 });

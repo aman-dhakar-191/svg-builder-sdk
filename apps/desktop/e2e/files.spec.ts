@@ -65,7 +65,7 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
     copyFileSync(corpus(name), path);
     const original = readFileSync(path, "utf8");
     await open(path);
-    expect(await title()).toBe(`${name} — SVG Editor`);
+    expect(await title()).toBe(`${name} — Curvant`);
     await page.locator("#tab-layers-button").click();
     await expect(page.locator(".layer-row").first()).toBeVisible();
     // Long names in the panels must not make the window itself scroll.
@@ -102,7 +102,7 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
     await expect(page.locator("#canvas svg circle#typed")).toHaveCount(1);
 
     await menu("save");
-    await expect.poll(title).toBe(`${name} — SVG Editor`);
+    await expect.poll(title).toBe(`${name} — Curvant`);
     const saved = readFileSync(path, "utf8");
     const crlf = original.includes("\r\n");
     expect(saved).toBe(crlf ? (await code()).replace(/\n/g, "\r\n") : await code());
@@ -158,7 +158,7 @@ test("save as, then export PNG at the drawing's size", async () => {
   const svgPath = join(dir, "saved-as.svg");
   await stubSave(svgPath);
   await menu("saveAs");
-  await expect.poll(title).toBe("saved-as.svg — SVG Editor");
+  await expect.poll(title).toBe("saved-as.svg — Curvant");
   expect(readFileSync(svgPath, "utf8")).toBe(await code());
 
   const pngPath = join(dir, "export.png");
@@ -181,7 +181,7 @@ test("export SVG formatted or minified writes a copy and leaves the open file al
   const svgPath = join(dir, "drawing.svg");
   await stubSave(svgPath);
   await menu("saveAs");
-  await expect.poll(title).toBe("drawing.svg — SVG Editor");
+  await expect.poll(title).toBe("drawing.svg — Curvant");
   const original = await code();
   const read = (p: string) => {
     try {
@@ -213,7 +213,7 @@ test("export SVG formatted or minified writes a copy and leaves the open file al
   await expect(page.locator("#status")).toHaveText("That is the open file. Export to another name, or use Save.");
   expect(read(svgPath)).toBe(original);
   expect(await code()).toBe(original);
-  expect(await title()).toBe("drawing.svg — SVG Editor");
+  expect(await title()).toBe("drawing.svg — Curvant");
 });
 
 test("zoom, grid and snapping", async () => {
@@ -279,5 +279,5 @@ test("new document asks before discarding unsaved changes", async () => {
   await menu("new");
   await (await prompt).accept();
   await expect(page.locator("#canvas svg > *")).toHaveCount(0);
-  expect(await title()).toBe("Untitled.svg — SVG Editor");
+  expect(await title()).toBe("Untitled.svg — Curvant");
 });

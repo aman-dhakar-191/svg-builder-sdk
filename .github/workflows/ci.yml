@@ -127,7 +127,7 @@ jobs:
               echo "Release $TAG exists; reusing it."
             fi
           else
-            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "SVG Editor ${TAG#v}" --generate-notes \
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Curvant ${TAG#v}" --generate-notes \
               --notes "Installers are unsigned: on Windows choose \"More info\" → \"Run anyway\"; on macOS right-click the app → Open."
           fi
 
@@ -198,8 +198,8 @@ jobs:
         working-directory: apps/desktop
         run: |
           case "$RUNNER_OS" in
-            Linux)   APP="$PWD/release/linux-unpacked/svg-editor"; RUN="xvfb-run -a" ;;
-            Windows) APP="$(cygpath -w "$PWD/release/win-unpacked/SVG Editor.exe")"; RUN="" ;;
+            Linux)   APP="$PWD/release/linux-unpacked/curvant"; RUN="xvfb-run -a" ;;
+            Windows) APP="$(cygpath -w "$PWD/release/win-unpacked/Curvant.exe")"; RUN="" ;;
             macOS)   APP="$(ls -d "$PWD"/release/mac-arm64/*.app)/Contents/MacOS/$(ls "$(ls -d "$PWD"/release/mac-arm64/*.app)/Contents/MacOS" | head -1)"; RUN="" ;;
           esac
           echo "Testing $APP"
@@ -215,9 +215,9 @@ jobs:
         run: |
           $exe = (Get-ChildItem apps/desktop/release/*.exe).FullName
           & .github/scripts/installer-wizard.ps1 -Installer $exe -OutDir "$env:RUNNER_TEMP\wizard"
-          $u = "$env:LOCALAPPDATA\Programs\SVG Editor\Uninstall SVG Editor.exe"
+          $u = "$env:LOCALAPPDATA\Programs\Curvant\Uninstall Curvant.exe"
           if (Test-Path $u) { Start-Process $u -ArgumentList "/S" -Wait }
-          for ($i = 0; $i -lt 60 -and (Test-Path "$env:LOCALAPPDATA\Programs\SVG Editor\SVG Editor.exe"); $i++) { Start-Sleep 1 }
+          for ($i = 0; $i -lt 60 -and (Test-Path "$env:LOCALAPPDATA\Programs\Curvant\Curvant.exe"); $i++) { Start-Sleep 1 }
 
       - name: Upload wizard screenshots
         if: runner.os == 'Windows' && always()
@@ -234,25 +234,25 @@ jobs:
         working-directory: apps/desktop
         run: |
           # Current-user install: no admin rights, nothing machine-wide.
-          $dir = "$env:LOCALAPPDATA\Programs\SVG Editor"
+          $dir = "$env:LOCALAPPDATA\Programs\Curvant"
           $exe = (Get-ChildItem release/*.exe).FullName
           Start-Process $exe -ArgumentList "/S" -Wait
-          $app = "$dir\SVG Editor.exe"
-          $links = @((Join-Path ([Environment]::GetFolderPath("Desktop")) "SVG Editor.lnk"), (Join-Path ([Environment]::GetFolderPath("Programs")) "SVG Editor.lnk"))
+          $app = "$dir\Curvant.exe"
+          $links = @((Join-Path ([Environment]::GetFolderPath("Desktop")) "Curvant.lnk"), (Join-Path ([Environment]::GetFolderPath("Programs")) "Curvant.lnk"))
           if (-not (Test-Path $app)) {
             Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
-              Where-Object DisplayName -like "SVG Editor*" | Format-List DisplayName, InstallLocation, UninstallString
+              Where-Object DisplayName -like "Curvant*" | Format-List DisplayName, InstallLocation, UninstallString
             throw "not installed to $dir"
           }
           foreach ($l in $links) { if (-not (Test-Path $l)) { throw "missing shortcut $l" } }
-          $hklm = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "SVG Editor*"
+          $hklm = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "Curvant*"
           if ($hklm) { throw "registered machine-wide; expected a current-user install" }
-          $hkcu = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "SVG Editor*"
+          $hkcu = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "Curvant*"
           if (-not $hkcu) { throw "not registered for the current user" }
           $env:PACKAGED_APP = $app
           pnpm exec playwright test e2e/packaged.spec.ts
           if ($LASTEXITCODE -ne 0) { throw "installed app failed its smoke test" }
-          Start-Process "$dir\Uninstall SVG Editor.exe" -ArgumentList "/S" -Wait
+          Start-Process "$dir\Uninstall Curvant.exe" -ArgumentList "/S" -Wait
           for ($i = 0; $i -lt 60 -and (Test-Path $app); $i++) { Start-Sleep 1 }
           if (Test-Path $app) { throw "uninstall left $app" }
           foreach ($l in $links) { if (Test-Path $l) { throw "uninstall left $l" } }
