@@ -169,12 +169,12 @@ describe("render_snapshot", () => {
     });
   });
 
-  it("returns a PNG of the page, capped in size, on white", async () => {
+  it("returns a PNG of the page, scaled to 1024 px on the long side, on white", async () => {
     const r = await run("render_snapshot", {});
     if (!r.ok) throw new Error(r.error.message);
-    expect(r.result).toMatchObject({ width: 400, height: 200, region: "whole page" });
+    expect(r.result).toMatchObject({ width: 1024, height: 512, region: "whole page" });
     expect(r.image!.mediaType).toBe("image/png");
-    expect(r.image!.data).toBe(Buffer.from(fakePng(400, 200)).toString("base64"));
+    expect(r.image!.data).toBe(Buffer.from(fakePng(1024, 512)).toString("base64"));
     expect(rasterized[0]).toContain('fill="white"');
   });
 

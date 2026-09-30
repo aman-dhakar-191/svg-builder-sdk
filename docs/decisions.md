@@ -151,3 +151,12 @@
 | Wizard | Welcome → location → options (desktop / Start Menu shortcuts) → ready → install → finish with "Launch SVG Editor". Custom pages in `apps/desktop/build/installer.nsh` via electron-builder's NSIS hooks. | User's design. "Launch after install" is only on the finish page; the NSIS progress page shows no percentage. |
 | Scope | Current user only: `%LOCALAPPDATA%\Programs\SVG Editor`, registered under HKCU, no admin prompt. The "for me / for all users" page is skipped (`customInstallMode`). The user can still browse to another folder they can write to. | v0.1.1 installed per machine to `C:\Program Files`, which requires an administrator password. Revisit if IT-managed, machine-wide installs are needed (e.g. an MSI). |
 | CI | Silent install checks the folder, both shortcuts, that nothing was registered machine-wide, runs the installed app, then uninstalls and checks everything is gone. The wizard is also clicked through with a screenshot per page. | |
+
+## AI drawing quality (after the first real test)
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Prompt | Plan the composition first; smooth C/S/A curves instead of chains of tiny Q segments; `<textPath>` for circular text; an original design "in the style of" a brand, not a copy of a trademark; critique each snapshot against the request and fix until it reads right or snapshots run out; say honestly what could still be improved. | First real run (a "logo like Starbucks" via a local gateway) stopped after one snapshot with a lumpy figure; the old prompt said "one or two checks are usually enough". |
+| Snapshot size | Always scaled to 1024 px on the long side (`exportPng({ longSide })`), so small drawings are enlarged. | A 200x120 page was sent as 400x240 px, too small to judge details. |
+| Chat text | Each model response in a turn starts a new paragraph. | Replies ran together ("…text ring.Created a circular…"). |
+| Limits | Quality depends mostly on the model; the app cannot make a weak model draw well. | Compare models with the same request. |

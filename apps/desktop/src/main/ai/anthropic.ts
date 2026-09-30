@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT, toolsFor, validate } from "@svg-editor/ai-tools";
 import type { AiSettings } from "../../shared/ai.js";
-import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
+import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, paragraph, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
 
 type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 type Message = Anthropic.Beta.Messages.BetaMessage;
@@ -103,7 +103,10 @@ export const anthropicProvider: Provider = {
       let text = "";
       let rounds = 0;
       for (;;) {
+        let fresh = true; // first text of this model response
         const m = await streamOnce(c, requestParams(a.settings, history, tools), a.signal, (d) => {
+          if (fresh && d) d = paragraph(text, d);
+          fresh = false;
           text += d;
           a.onText(d);
         });

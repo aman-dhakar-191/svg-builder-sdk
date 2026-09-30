@@ -55,3 +55,9 @@ export const NO_VISION_MESSAGE = "this model does not accept images. Turn off \"
 
 /** Placeholder for snapshots from earlier turns, which are dropped to keep requests small. */
 export const OLD_SNAPSHOT_TEXT = "[snapshot from an earlier turn omitted]";
+
+/** Starts a new model response's text on its own paragraph (a turn has several responses). */
+export function paragraph(before: string, next: string): string {
+  if (!before || /\s$/.test(before) || /^\s/.test(next)) return next;
+  return `\n\n${next}`;
+}

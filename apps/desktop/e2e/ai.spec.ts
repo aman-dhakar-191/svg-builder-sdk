@@ -84,7 +84,7 @@ test("acceptance (Anthropic): a house with a red door, locked while drawing, one
   await expect(page.locator("#chat-send")).toBeDisabled();
   hold.open();
 
-  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Let me look at the drawing.I drew a simple house with a red door.");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Let me look at the drawing.\n\nI drew a simple house with a red door.");
   await expect(page.locator("#lock-banner")).toBeHidden();
   await expect(page.locator(".chat-tools li")).toHaveText(["get document", "add elements"]);
 
@@ -290,7 +290,7 @@ test("OpenAI-compatible gateway that streams even when asked not to", async () =
   mock.openaiStreams = true;
   mock.script([{ text: "Drawing.", tools: [{ name: "add_elements", input: HOUSE }] }, { text: "Done: a house with a red door." }]);
   await ask("draw a simple house with a red door");
-  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Drawing.Done: a house with a red door.");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Drawing.\n\nDone: a house with a red door.");
   expect(await code()).toMatch(/<rect id="door"[^>]*fill="#dc2626"/);
   expect(mock.requests[0]!.body.stream).toBe(false);
 });

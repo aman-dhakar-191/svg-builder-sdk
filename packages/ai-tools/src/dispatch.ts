@@ -22,7 +22,7 @@ export type ToolOutcome =
   | { ok: true; result: unknown; image?: ToolImage }
   | { ok: false; error: { code: string; message: string; hint: string } };
 
-/** Longest side of a snapshot, in pixels. */
+/** Longest side of a snapshot, in pixels: small drawings are scaled up so the model sees detail. */
 export const SNAPSHOT_MAX_SIZE = 1024;
 
 const MAX_OUTLINE_NODES = 400;
@@ -251,7 +251,7 @@ const HANDLERS: Record<string, Handler> = {
       const pad = input.padding ?? Math.max(x1 - x0, y1 - y0, 1) * 0.1;
       region = { x: x0 - pad, y: y0 - pad, width: Math.max(x1 - x0, 1e-3) + 2 * pad, height: Math.max(y1 - y0, 1e-3) + 2 * pad };
     }
-    const png = await t.editor.exportPng({ ...(region ? { region } : {}), maxSize: SNAPSHOT_MAX_SIZE, background: "white" });
+    const png = await t.editor.exportPng({ ...(region ? { region } : {}), longSide: SNAPSHOT_MAX_SIZE, background: "white" });
     if (t.snapshotBudget) t.snapshotBudget.left--;
     const size = pngSize(png);
     return new WithImage(

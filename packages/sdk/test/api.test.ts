@@ -278,6 +278,14 @@ describe("exportPng options", () => {
     expect(calls[1]!.size).toEqual({ width: 400, height: 200 });
   });
 
+  it("longSide scales small drawings up (and large ones down)", async () => {
+    const ed = createEditor({ svg: '<svg viewBox="0 0 200 120" width="200" height="120"/>' });
+    const calls = capture(ed);
+    await ed.exportPng({ longSide: 1000 });
+    await ed.exportPng({ region: { x: 0, y: 0, width: 20, height: 10 }, longSide: 100 });
+    expect(calls.map((c) => c.size)).toEqual([{ width: 1000, height: 600 }, { width: 100, height: 50 }]);
+  });
+
   it("rejects bad regions", async () => {
     const ed = createEditor();
     capture(ed);
