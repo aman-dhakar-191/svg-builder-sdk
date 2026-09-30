@@ -491,7 +491,7 @@ export class Session {
     this.update = u;
     const manual = this.manualUpdateCheck;
     if (u.state === "ready") this.showStatus(`Version ${u.version} is ready: restart to update.`, false);
-    else if (u.state === "none" && manual) this.showStatus(`SVG Editor ${u.version} is the latest version.`, false);
+    else if (u.state === "none" && manual) this.showStatus(`Curvant ${u.version} is the latest version.`, false);
     else if (u.state === "available") this.showStatus(`Version ${u.version} is available.`, false);
     else if ((u.state === "error" || u.state === "unsupported") && manual) this.showStatus(u.message, u.state === "error");
     if (u.state !== "checking") this.manualUpdateCheck = false;

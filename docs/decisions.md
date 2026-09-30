@@ -148,8 +148,8 @@
 
 | Topic | Decision | Why / revisit when |
 |---|---|---|
-| Wizard | Welcome → location → options (desktop / Start Menu shortcuts) → ready → install → finish with "Launch SVG Editor". Custom pages in `apps/desktop/build/installer.nsh` via electron-builder's NSIS hooks. | User's design. "Launch after install" is only on the finish page; the NSIS progress page shows no percentage. |
-| Scope | Current user only: `%LOCALAPPDATA%\Programs\SVG Editor`, registered under HKCU, no admin prompt. The "for me / for all users" page is skipped (`customInstallMode`). The user can still browse to another folder they can write to. | v0.1.1 installed per machine to `C:\Program Files`, which requires an administrator password. Revisit if IT-managed, machine-wide installs are needed (e.g. an MSI). |
+| Wizard | Welcome → location → options (desktop / Start Menu shortcuts) → ready → install → finish with "Launch Curvant". Custom pages in `apps/desktop/build/installer.nsh` via electron-builder's NSIS hooks. | User's design. "Launch after install" is only on the finish page; the NSIS progress page shows no percentage. |
+| Scope | Current user only: `%LOCALAPPDATA%\Programs\Curvant` ("SVG Editor" before the rename), registered under HKCU, no admin prompt. The "for me / for all users" page is skipped (`customInstallMode`). The user can still browse to another folder they can write to. | v0.1.1 installed per machine to `C:\Program Files`, which requires an administrator password. Revisit if IT-managed, machine-wide installs are needed (e.g. an MSI). |
 | CI | Silent install checks the folder, both shortcuts, that nothing was registered machine-wide, runs the installed app, then uninstalls and checks everything is gone. The wizard is also clicked through with a screenshot per page. | |
 
 ## AI drawing quality (after the first real test)
@@ -230,4 +230,14 @@ Measured with the SDK (paths, one attribute each changed, Node 22): opening and 
 |---|---|---|
 | Code edits | `reconcile` (keeping IDs across a code edit) aligned every old child with every new child, rebuilding attribute sets per pair, with an n x m table: 1.1 s at 1,000 siblings, 29 s at 5,000, 8 min at 20,000. Now identical runs at the start and end of each child list match directly (an edit usually changes one spot); only the changed middle is aligned for best similarity, with attributes computed once per node; above 250,000 pairs the middle is matched in order by tag (IDs may reset where tags differ, as the plan accepts for big rewrites). The breadth-first queue no longer uses `shift()`. Result: 20 ms at 1,000, 0.1 s at 5,000, 0.66 s at 20,000. A test holds 5,000 siblings under 2 s. | Plan risk 5: "test a large file early". |
 | App side | At 5,000 elements one change costs about 180 ms in the app: the full canvas rebuild about 80 ms, Svelte updates (5,000 layer rows) about 80 ms. | Next if large files matter: virtualize the Layers list, then patch the canvas per mutation instead of rebuilding it. |
+
+## Branding: Curvant
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Name | **Curvant**: curve + -ant (as in assistant, agent); also a heraldry word for "curved". Chosen from 21 candidates searched for existing apps and companies, a free npm scope and GitHub name. Not a trademark search. The npm packages keep the `@svg-editor/*` scope for now (unpublished). | Vectra (Vectra AI; Vectr), Forma (Autodesk Forma), Glyph (Glyphs), Pathpilot (Tormach PathPilot), Inkling and others were taken in this space. |
+| Icon | A ribbon C with a lighter fold, in a cyan-blue-violet-pink-orange gradient on near-black; large sizes show it as a selected path (points on its edge, handles straight through them), 64 px and below the C alone, a little bigger. Sources `apps/desktop/build/icon.svg` and `icon-small.svg`; `scripts/make-icons.mjs` renders `icon.ico` (Windows, simple C up to 64 px), `icon-mac.png` (Apple's grid) and `icons/` (Linux). The title bar shows the small icon. | User's pick after several rounds; the image it started from was a raster, rebuilt as vectors. |
+| Theme | The accent (buttons, selection, handles, focus, links) moves from teal to the logo's indigo: `#4f46e5` light, `#818cf8` dark; neutrals are tinted toward it. The agent's orange stays: it is the gradient's other end. Every text and fill pair checked at 5.3:1 or more. | The icon and the app should read as one product. |
+| Settings folder | Electron names it after the app; packaged builds keep using `SVG Editor`, so updating from an older version keeps AI settings, recent files and update settings. | [Guessing] On macOS the saved API key may need entering again: the keychain entry follows the app name. |
+| Installs | The app ID is unchanged, so updates install over the old version [Likely: electron-builder finds the previous folder from its uninstall entry]; new installs go to `%LOCALAPPDATA%\Programs\Curvant`. Installer files are now `Curvant-<version>-...`; the update feed follows. | |
 

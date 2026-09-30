@@ -6,6 +6,10 @@ import { checkOnStart, registerUpdater } from "./updater.js";
 
 // Tests point userData at a temp dir so settings never touch the real profile.
 if (process.env.SVG_EDITOR_USER_DATA) app.setPath("userData", process.env.SVG_EDITOR_USER_DATA);
+// The app was called "SVG Editor" before Curvant, and Electron names the settings folder
+// after the app. Keep using that folder, so an update keeps AI settings, recent files and
+// update settings; nobody sees its name.
+else if (app.isPackaged) app.setPath("userData", join(app.getPath("appData"), "SVG Editor"));
 
 /**
  * Per-window file state lives here, not in the renderer: the renderer never
@@ -33,7 +37,7 @@ function stateOf(win: BrowserWindow): WindowState {
 function updateTitle(win: BrowserWindow): void {
   const s = stateOf(win);
   const name = s.path ? basename(s.path) : "Untitled.svg";
-  win.setTitle(`${s.dirty ? "• " : ""}${name} — SVG Editor`);
+  win.setTitle(`${s.dirty ? "• " : ""}${name} — Curvant`);
 }
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow {
@@ -121,7 +125,7 @@ ipcMain.handle("file:openRecent", async (e, id: unknown) => {
 // ------------------------------------------------------------ title bar
 
 /** Window buttons drawn over the custom title bar (Windows, Linux); colours follow the app theme. */
-const TITLE_BAR = { light: { color: "#ffffff", symbolColor: "#14191c" }, dark: { color: "#141a1e", symbolColor: "#e4eaed" } };
+const TITLE_BAR = { light: { color: "#ffffff", symbolColor: "#15161f" }, dark: { color: "#14151f", symbolColor: "#e6e7f0" } };
 const TITLE_BAR_HEIGHT = 44;
 
 ipcMain.on("window:titleBarTheme", (e, theme: unknown) => {
@@ -274,13 +278,13 @@ function createWindow(): void {
     height: 860,
     minWidth: 900,
     minHeight: 560,
-    title: "SVG Editor",
+    title: "Curvant",
     // The app draws its own title bar (menus, Editor/Agent switch); the OS draws the window buttons over it.
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? { trafficLightPosition: { x: 14, y: 14 } }
       : { titleBarOverlay: { ...TITLE_BAR.light, height: TITLE_BAR_HEIGHT } }),
-    backgroundColor: "#eef1f2",
+    backgroundColor: "#eff0f5",
     show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),

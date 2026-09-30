@@ -1,6 +1,6 @@
 # Installers are built in GitHub Actions (.github/workflows/ci.yml, "package" job).
 appId: dev.svg-editor.desktop
-productName: SVG Editor
+productName: Curvant
 # No top-level executableName: on Windows it would also name the install folder
 # (C:\Program Files\svg-editor). Windows and macOS use the product name; Linux sets its own.
 copyright: Copyright © aman-dhakar-191
@@ -13,29 +13,35 @@ files:
 npmRebuild: false
 asar: true
 # No spaces: this is also the release asset and artifact name.
-artifactName: "SVG-Editor-${version}-${os}-${arch}.${ext}"
+artifactName: "Curvant-${version}-${os}-${arch}.${ext}"
 linux:
   target: [AppImage]
   category: Graphics
-  executableName: svg-editor
+  executableName: curvant
+  # build/icons/NxN.png, made by scripts/make-icons.mjs
+  icon: build/icons
   syncDesktopName: true
 win:
   target: [nsis]
+  # 16-64 px frames use the simple C, 128-256 px the full icon (scripts/make-icons.mjs).
+  icon: build/icon.ico
 nsis:
   # Wizard: welcome, location, options, ready, install, finish (build/installer.nsh).
   oneClick: false
   allowToChangeInstallationDirectory: true
   # Current user only (build/installer.nsh forces it): installs to
-  # %LOCALAPPDATA%\Programs\SVG Editor and never asks for admin rights.
+  # %LOCALAPPDATA%\Programs\Curvant and never asks for admin rights.
   perMachine: false
   include: build/installer.nsh
-  shortcutName: SVG Editor
+  shortcutName: Curvant
 mac:
   # Apple silicon and Intel.
   target:
     - target: dmg
       arch: [arm64, x64]
   category: public.app-category.graphics-design
+  # On Apple's icon grid (tile at 824 of 1024 px).
+  icon: build/icon-mac.png
   # Unsigned until a signing certificate is configured. macOS only installs signed
   # updates, so macOS builds get no update feed.
   identity: null

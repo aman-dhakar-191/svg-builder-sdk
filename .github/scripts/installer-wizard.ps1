@@ -3,8 +3,8 @@
 # reviewed from CI. Usage: installer-wizard.ps1 <installer.exe> <out-dir>
 param([string]$Installer, [string]$OutDir)
 $ErrorActionPreference = "Stop"
-$App = "$env:LOCALAPPDATA\Programs\SVG Editor\SVG Editor.exe"
-$Proc = "SVG Editor"
+$App = "$env:LOCALAPPDATA\Programs\Curvant\Curvant.exe"
+$Proc = "Curvant"
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $shell = New-Object -ComObject WScript.Shell
@@ -19,14 +19,14 @@ function Shot([string]$name) {
 }
 
 function Press([string]$keys) {
-  if (-not $shell.AppActivate("SVG Editor Setup")) { throw "installer window not found" }
+  if (-not $shell.AppActivate("Curvant Setup")) { throw "installer window not found" }
   Start-Sleep -Milliseconds 300
   [System.Windows.Forms.SendKeys]::SendWait($keys)
   Start-Sleep -Seconds 2
 }
 
 $p = Start-Process -FilePath $Installer -PassThru
-for ($i = 0; $i -lt 60 -and -not $shell.AppActivate("SVG Editor Setup"); $i++) { Start-Sleep -Seconds 1 }
+for ($i = 0; $i -lt 60 -and -not $shell.AppActivate("Curvant Setup"); $i++) { Start-Sleep -Seconds 1 }
 Start-Sleep -Seconds 2
 
 Shot "1-welcome";  Press "{ENTER}"
@@ -39,7 +39,7 @@ Shot "5-installing"
 for ($i = 0; $i -lt 120 -and -not (Test-Path $App); $i++) { Start-Sleep -Seconds 1 }
 Start-Sleep -Seconds 8
 Shot "6-finished"
-# Finish with "Launch SVG Editor" ticked, so this also checks the launch; then close the app.
+# Finish with "Launch Curvant" ticked, so this also checks the launch; then close the app.
 Press "{ENTER}"
 for ($i = 0; $i -lt 30 -and -not (Get-Process $Proc -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
 Start-Sleep -Seconds 3

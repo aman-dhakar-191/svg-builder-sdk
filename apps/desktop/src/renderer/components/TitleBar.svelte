@@ -13,9 +13,7 @@
 
 <header class="titlebar" class:mac={IS_MAC}>
   <div class="left">
-    <span class="mark" aria-hidden="true">
-      <svg viewBox="0 0 16 16"><path d="M3 12.5 8 3l5 9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /><circle cx="8" cy="3" r="1.7" fill="var(--ink)" /></svg>
-    </span>
+    <span class="mark" aria-hidden="true"><svg viewBox="0 0 128 128"><rect width="128" height="128" rx="29" fill="#0d0f1a"/><g transform="translate(64 64) scale(1.02) translate(-63 -65)"><defs><linearGradient id="tbgS" gradientUnits="userSpaceOnUse" x1="104" y1="22" x2="62" y2="112"><stop offset="0" stop-color="#62e6ff"/><stop offset="0.3" stop-color="#4f7cff"/><stop offset="0.55" stop-color="#8b5cf6"/><stop offset="0.8" stop-color="#ec4899"/><stop offset="1" stop-color="#fb923c"/></linearGradient><linearGradient id="tbfS" gradientUnits="userSpaceOnUse" x1="16" y1="70" x2="112" y2="96"><stop offset="0" stop-color="#ec4899"/><stop offset="1" stop-color="#fdba74"/></linearGradient><clipPath id="tbcS"><path d="M104 40 C92 22 70 16 54 20 C30 26 18 46 18 66 C18 92 40 110 66 110 C82 110 96 102 108 88 C96 96 84 98 72 96 C52 92 42 78 42 64 C42 50 52 38 68 36 C84 34 96 36 104 40 Z"/></clipPath></defs><path d="M104 40 C92 22 70 16 54 20 C30 26 18 46 18 66 C18 92 40 110 66 110 C82 110 96 102 108 88 C96 96 84 98 72 96 C52 92 42 78 42 64 C42 50 52 38 68 36 C84 34 96 36 104 40 Z" fill="url(#tbgS)" stroke="url(#tbgS)" stroke-width="5" stroke-linejoin="round"/><g clip-path="url(#tbcS)"><path d="M16 70 C28 94 50 106 72 101 C88 98 100 92 112 86 C96 90 82 88 70 84 C52 78 36 72 16 70 Z" fill="url(#tbfS)" opacity="0.9"/></g></g></svg></span>
     {#if !IS_MAC}<MenuBar />{/if}
     <span class="docname" title={session.docName}>
       {session.docName}{#if session.dirty}<span class="dirty" aria-label="unsaved changes"> · edited</span>{/if}
@@ -61,8 +59,8 @@
   .titlebar :global(button), .titlebar :global(input) { -webkit-app-region: no-drag; }
   .left, .right { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .right { justify-content: flex-end; gap: 6px; }
-  .mark { width: 22px; height: 22px; border-radius: 6px; background: var(--fg); color: var(--panel); display: grid; place-items: center; margin-right: 4px; flex: none; }
-  .mark svg { width: 14px; height: 14px; }
+  .mark { width: 22px; height: 22px; display: grid; place-items: center; margin-right: 4px; flex: none; }
+  .mark svg { width: 22px; height: 22px; display: block; }
   .docname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: 8px; min-width: 0; }
   .dirty { font-weight: 400; color: var(--muted); }
 

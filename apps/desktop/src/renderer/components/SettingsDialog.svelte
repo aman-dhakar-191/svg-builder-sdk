@@ -132,7 +132,7 @@
         {@const u = session.update}
         <div class="sec" id="updates" in:fade={{ duration: 120 }}>
           <h2>Updates</h2>
-          <p class="hint">You have SVG Editor {session.appVersion}. New versions come from the project's GitHub releases.</p>
+          <p class="hint">You have Curvant {session.appVersion}. New versions come from the project's GitHub releases.</p>
           <label class="check"><input type="checkbox" checked={session.updateAutoCheck} onchange={(e) => session.setUpdateAutoCheck((e.target as HTMLInputElement).checked)} /><span>Check for updates when the app starts <small>(downloads in the background; installs when you restart or quit)</small></span></label>
           <p id="update-status" role="status" class:err={u.state === "error"}>
             {#if u.state === "checking"}Checking…

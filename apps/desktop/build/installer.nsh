@@ -1,9 +1,9 @@
 ; Custom pages for the Windows installer (electron-builder NSIS "include" hooks).
 ;
 ; Wizard: Welcome -> Location (built in) -> Additional options -> Ready to install
-;         -> Installing (built in) -> Finished (built in, with "Launch SVG Editor").
+;         -> Installing (built in) -> Finished (built in, with "Launch Curvant").
 ;
-; Always installs for the current user (%LOCALAPPDATA%\Programs\SVG Editor), so it
+; Always installs for the current user (%LOCALAPPDATA%\Programs\Curvant), so it
 ; never needs admin rights; electron-builder's "for me / for all users" page is skipped.
 ;
 ; Shortcuts are created by electron-builder before customInstall runs; the

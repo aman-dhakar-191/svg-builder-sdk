@@ -23,7 +23,7 @@ async function launch(env: Record<string, string> = {}): Promise<void> {
 
 /** A local update feed: the latest-linux.yml GitHub Releases would serve, for version `version` (read per request). */
 async function feed(version: () => string): Promise<string> {
-  const yml = () => `version: ${version()}\nfiles:\n  - url: SVG-Editor-${version()}-linux-x86_64.AppImage\n    sha512: ${"A".repeat(86)}==\n    size: 1000\npath: SVG-Editor-${version()}-linux-x86_64.AppImage\nsha512: ${"A".repeat(86)}==\nreleaseDate: '2026-10-01T00:00:00.000Z'\n`;
+  const yml = () => `version: ${version()}\nfiles:\n  - url: Curvant-${version()}-linux-x86_64.AppImage\n    sha512: ${"A".repeat(86)}==\n    size: 1000\npath: Curvant-${version()}-linux-x86_64.AppImage\nsha512: ${"A".repeat(86)}==\nreleaseDate: '2026-10-01T00:00:00.000Z'\n`;
   server = createServer((req, res) => {
     if (req.url?.startsWith("/latest-linux.yml")) {
       res.writeHead(200, { "content-type": "text/yaml" });
@@ -54,7 +54,7 @@ const openUpdates = async () => {
 test("a development build says updates need the installed app; the automatic check can be turned off", async () => {
   await launch();
   await openUpdates();
-  await expect(page.locator("#updates")).toContainText(/You have SVG Editor \d+\.\d+\.\d+/);
+  await expect(page.locator("#updates")).toContainText(/You have Curvant \d+\.\d+\.\d+/);
   await page.locator("#check-updates").click();
   await expect(page.locator("#update-status")).toHaveText("Updates only work in the installed app.");
 
@@ -81,5 +81,5 @@ test("the same version on the feed: this is the latest", async () => {
   await page.keyboard.press("Control+k");
   await page.getByLabel("Search actions").fill("check for updates");
   await page.keyboard.press("Enter");
-  await expect(page.locator("#status")).toHaveText(`SVG Editor ${current} is the latest version.`);
+  await expect(page.locator("#status")).toHaveText(`Curvant ${current} is the latest version.`);
 });

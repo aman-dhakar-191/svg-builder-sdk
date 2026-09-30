@@ -1,6 +1,8 @@
-# svg-builder-sdk
+# Curvant
 
-Desktop SVG editor (Electron + TypeScript) with a code pane, a visual canvas, and a scriptable SDK over one shared document model. See [`docs/svg-editor-plan.md`](docs/svg-editor-plan.md).
+<img src="apps/desktop/build/icons/128x128.png" width="64" height="64" alt="Curvant icon: a ribbon C drawn as a selected vector path">
+
+Curvant is a desktop SVG editor (Electron + TypeScript) with a code pane, a visual canvas, an AI agent that draws with you, and a scriptable SDK, all over one shared document model. See [`docs/svg-editor-plan.md`](docs/svg-editor-plan.md).
 
 ## Layout
 
@@ -44,9 +46,9 @@ Installers are built by GitHub Actions only, never locally. They are **unsigned*
 - **Linux:** mark the AppImage executable, then run it.
 
 **Releases:** every merge to `main` publishes a GitHub Release (`v0.1.0`, `v0.1.1`, …) with the installers attached. Get the latest from the repository's **Releases** page:
-- `SVG-Editor-<version>-win-x64.exe`
-- `SVG-Editor-<version>-mac-arm64.dmg` (Apple silicon) and `…-mac-x64.dmg` (Intel)
-- `SVG-Editor-<version>-linux-x86_64.AppImage`
+- `Curvant-<version>-win-x64.exe`
+- `Curvant-<version>-mac-arm64.dmg` (Apple silicon) and `…-mac-x64.dmg` (Intel)
+- `Curvant-<version>-linux-x86_64.AppImage`
 
 **Updates (Windows and Linux AppImage):** the installed app checks the Releases page a few seconds after it starts, downloads a new version in the background and shows **Restart to update**; otherwise it installs when you quit. File > Check for Updates… checks now; Settings > Updates can turn the automatic check off. macOS builds do not update themselves (they are unsigned): download the new `.dmg` from Releases.
 
