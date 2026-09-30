@@ -137,6 +137,30 @@
     </div>
   </section>
 
+  {#if session.nodeEditing}
+    {@const pt = session.activeNode}
+    <section class="sec points" transition:slide={{ duration: 160 }}>
+      <h3 class="eyebrow">Point</h3>
+      {#if pt}
+        <div class="btns">
+          <button class="btn small" aria-pressed={!pt.smooth} onclick={() => session.canvas?.nodeAction("corner")} title="Pull the handles in: a sharp point">Corner</button>
+          <button class="btn small" aria-pressed={pt.smooth} onclick={() => session.canvas?.nodeAction("smooth")} title="Line the handles up: a smooth curve through the point">Smooth</button>
+          <span class="spacer"></span>
+          <button class="btn small ghost" onclick={() => session.canvas?.nodeAction("delete")} title="Remove this point (Delete)">Delete point</button>
+        </div>
+        {#if !pt.isStart}
+          <span class="hint">Segment into this point</span>
+          <div class="btns">
+            <button class="btn small" onclick={() => session.canvas?.nodeAction("line")}>Straight line</button>
+            <button class="btn small" onclick={() => session.canvas?.nodeAction("curve")}>Curve</button>
+          </div>
+        {/if}
+      {:else}
+        <p class="hint">Click a point to select it. Double-click the outline to add one; double-click a point to switch it between corner and smooth.</p>
+      {/if}
+    </section>
+  {/if}
+
   {#if node.tag !== "g"}
     <section class="sec">
       <h3 class="eyebrow">Fill</h3>

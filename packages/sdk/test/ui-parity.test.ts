@@ -122,6 +122,17 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
     },
   },
   {
+    ui: "Points: double-click the outline to add, Delete, Corner / Smooth, Straight line / Curve",
+    sdk: "doc.pathNode(id, { action, seg, ... })",
+    run: (ed) => {
+      const p = ed.doc.add("path", { d: "M0 0 L10 0 L10 10" });
+      expect(ed.doc.pathNode(p, { action: "insert", seg: 1, t: 0.5 })).toBe("M0 0 L5 0 L10 0 L10 10");
+      expect(ed.doc.pathNode(p, { action: "delete", seg: 1 })).toBe("M0 0 L10 0 L10 10");
+      expect(ed.doc.pathNode(p, { action: "node", seg: 1, type: "smooth" })).toMatch(/^M0 0 C/);
+      expect(ed.doc.pathNode(p, { action: "segment", seg: 1, type: "line" })).toMatch(/^M0 0 L10 0 C/);
+    },
+  },
+  {
     ui: "Export SVG (formatted / minified)",
     sdk: "editor.toSvg({ pretty })",
     run: (ed) => {

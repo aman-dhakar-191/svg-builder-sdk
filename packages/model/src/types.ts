@@ -57,6 +57,16 @@ export type Command =
    * also moves its handles unless `handles` is false. Rewrites `d` in absolute form.
    */
   | { op: "pathEdit"; id: NodeId; moves: { seg: number; point: "p" | "c1" | "c2" | "c"; to: Vec2 }[]; handles?: boolean }
+  /**
+   * Node-level change to a <path> (see PathNodeOp): insert a node on a segment at t, delete
+   * a node, make a node a corner or smooth, or make a segment a line or a curve.
+   */
+  | ({ op: "pathNode"; id: NodeId } & (
+      | { action: "insert"; seg: number; t: number }
+      | { action: "delete"; seg: number }
+      | { action: "node"; seg: number; type: "corner" | "smooth" }
+      | { action: "segment"; seg: number; type: "line" | "curve" }
+    ))
   /** Replace a basic shape (rect, circle, ellipse, line, polyline, polygon) by an equivalent <path>. */
   | { op: "convertToPath"; id: NodeId }
   /**
@@ -91,6 +101,7 @@ export type ErrorCode =
   | "NOT_A_PATH"
   | "NOT_CONVERTIBLE"
   | "EMPTY_RESULT"
+  | "TOO_FEW_POINTS"
   | "BATCH_FAILED";
 
 export interface CommandError {
@@ -115,6 +126,7 @@ export interface CommandResultMap {
   batch: { results: unknown[] };
   replace: { root: NodeId };
   pathEdit: { id: NodeId; d: string };
+  pathNode: { id: NodeId; d: string };
   /** The new <path> (a new node: the shape's ID is not reused). */
   convertToPath: { id: NodeId; d: string };
   /** The new <path>. */

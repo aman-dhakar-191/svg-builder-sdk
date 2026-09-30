@@ -235,7 +235,7 @@ editor.toSvg({ pretty: true });
 - Hover in code = highlight on canvas.
 - Pretty-print/minify on export.
 - Surface failed AI commands clearly in chat.
-- Node editing, deferred from Step 4 (user's call, for the final app polish): add a node (double-click on the outline), delete a node (select + Delete), change a node between corner and smooth, change a segment between line and curve.
+- Node editing, deferred from Step 4 (user's call, for the final app polish): add a node (double-click on the outline), delete a node (select + Delete), change a node between corner and smooth, change a segment between line and curve. **Done:** `pathNode`, see decisions.md.
 
 ## 11. CLAUDE.md (drop this in the repo root for Claude Code)
 

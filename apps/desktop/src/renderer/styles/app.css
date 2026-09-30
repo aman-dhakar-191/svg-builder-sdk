@@ -84,6 +84,7 @@ button:disabled { cursor: default; }
 .icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 0; background: none; border-radius: 7px; color: var(--muted); transition: background var(--fast), color var(--fast); flex: none; }
 .icon-btn:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
 .icon-btn[aria-pressed="true"] { background: var(--ink-soft); color: var(--ink); }
+.btn[aria-pressed="true"] { background: var(--ink-soft); color: var(--ink); border-color: color-mix(in srgb, var(--ink) 40%, var(--line)); }
 .icon-btn:disabled { opacity: 0.45; }
 .kbd { font: 11px var(--f-mono); color: var(--muted); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel); white-space: nowrap; }
 .input { height: 30px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 0 10px; min-width: 0; transition: border-color var(--fast); }
@@ -113,6 +114,7 @@ button:disabled { cursor: default; }
 #overlay .handle.e, #overlay .handle.w { cursor: ew-resize; }
 #overlay .handle.rotate { cursor: grab; }
 #overlay .handle.node { cursor: move; }
+#overlay .handle.node.active { fill: var(--ink); stroke: var(--panel); }
 #overlay .handle.ctrl { fill: var(--ink); stroke: var(--panel); cursor: move; }
 #overlay .ctrl-line { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 2 2; }
 #overlay .sel-outline { fill: none; stroke: var(--ink); stroke-width: 1; }

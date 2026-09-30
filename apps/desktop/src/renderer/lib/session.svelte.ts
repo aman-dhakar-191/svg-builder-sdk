@@ -92,6 +92,8 @@ export class Session {
   grid = $state(false);
   snap = $state(false);
   nodeEditing = $state(false);
+  /** The selected point while editing a path's points. */
+  activeNode: { seg: number; smooth: boolean; isStart: boolean } | null = $state(null);
   status: Status = $state({ text: "", error: false, id: 0 });
   docName = $state("Untitled.svg");
   dirty = $state(false);
@@ -174,9 +176,11 @@ export class Session {
       this.canvas?.refresh();
     });
     this.canvas.snapper = this.viewport;
+    this.canvas.onActiveNode = (n) => (this.activeNode = n);
+    this.canvas.onNodeError = (message) => this.showStatus(message, true);
     this.canvas.onNodeEdit = (on) => {
       this.nodeEditing = on;
-      if (on) this.showStatus("Editing path nodes: drag points and handles (Alt: move a point without its handles). Esc to finish.", false);
+      if (on) this.showStatus("Editing points: drag to move (Alt: a point alone), double-click the outline to add one, Delete to remove. Esc to finish.", false);
       else this.showSelectionStatus(this.editor.getSelection());
     };
     host.addEventListener("scroll", () => this.viewport?.drawGrid());

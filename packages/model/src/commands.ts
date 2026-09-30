@@ -9,7 +9,7 @@ import {
   parseTransformList,
 } from "./geometry.js";
 import type { Mutation } from "./mutations.js";
-import { formatPath, movePathPoints, parsePath, shapeToPath, type PathMove } from "./path.js";
+import { editPathNode, formatPath, movePathPoints, parsePath, shapeToPath, type PathMove, type PathNodeOp } from "./path.js";
 import {
   TEXT_TAG,
   type BBox,
@@ -526,6 +526,23 @@ function pathEdit(ctx: CommandContext, cmd: Record<string, unknown>): CommandRes
   return { id, d };
 }
 
+function pathNode(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["pathNode"] {
+  const id = requireString(cmd.id, "id", "pathNode");
+  const node = getElement(ctx, id, "pathNode");
+  if (node.tag !== "path") fail("NOT_A_PATH", `pathNode: "${id}" is a <${node.tag}>, not a <path>.`, "Convert it first with convertToPath.");
+  if (typeof cmd.seg !== "number" || !Number.isInteger(cmd.seg)) fail("INVALID_COMMAND", 'pathNode: "seg" must be an integer segment index.', "Get the segments with getPath(id).");
+  const types: Record<string, string[] | null> = { insert: null, delete: null, node: ["corner", "smooth"], segment: ["line", "curve"] };
+  const action = cmd.action as string;
+  if (!Object.hasOwn(types, action)) fail("INVALID_COMMAND", `pathNode: unknown action "${String(action)}".`, 'Use "insert" (with t), "delete", "node" (type corner|smooth) or "segment" (type line|curve).');
+  const allowed = types[action];
+  if (allowed && !allowed.includes(cmd.type as string)) fail("INVALID_COMMAND", `pathNode ${action}: "type" must be ${allowed.map((t) => `"${t}"`).join(" or ")}.`, `Example: { action: "${action}", seg: 1, type: "${allowed[0]}" }.`);
+  if (action === "insert" && typeof cmd.t !== "number") fail("INVALID_COMMAND", 'pathNode insert: "t" must be a number between 0 and 1.', "0.5 inserts in the middle of the segment.");
+  const op = { action, seg: cmd.seg, ...(action === "insert" ? { t: cmd.t } : {}), ...(allowed ? { type: cmd.type } : {}) } as PathNodeOp;
+  const d = formatPath(editPathNode(parsePath(node.attrs.d ?? ""), op));
+  setAttrs(ctx, node, { ...node.attrs, d });
+  return { id, d };
+}
+
 function convertToPath(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["convertToPath"] {
   const id = requireString(cmd.id, "id", "convertToPath");
   const node = getElement(ctx, id, "convertToPath");
@@ -625,6 +642,7 @@ const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown
   batch,
   replace,
   pathEdit,
+  pathNode,
   convertToPath,
   boolean: booleanOp,
   simplify,

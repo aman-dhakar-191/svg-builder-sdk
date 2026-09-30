@@ -1,4 +1,4 @@
-import { formatPath, movePathPoints, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathPoint, type PathSegment } from "@svg-editor/sdk";
+import { formatPath, movePathPoints, nearestOnPath, oppositeHandle, pointOnSegment, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "@svg-editor/sdk";
 import {
   angleBetween,
   anchorPoint,
@@ -78,6 +78,10 @@ export class CanvasController {
   private nodeEdit: NodeId | null = null;
   /** Told when node editing starts or ends (for a status hint). */
   onNodeEdit: (editing: boolean) => void = () => {};
+  /** The selected point while editing nodes (its segment index), for Delete and node / segment types. */
+  private activeNode: number | null = null;
+  /** Told when the selected point changes: its index and whether it is smooth, or null. */
+  onActiveNode: (node: { seg: number; smooth: boolean; isStart: boolean } | null) => void = () => {};
   /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
   private hover: NodeId | null = null;
 
@@ -89,6 +93,7 @@ export class CanvasController {
   ) {
     this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
     host.addEventListener("dblclick", (e) => this.doubleClick(e));
+    overlay.addEventListener("dblclick", (e) => this.doubleClick(e));
     host.addEventListener("keyup", (e) => {
       if (e.key === " ") this.spaceDown = false;
     });
@@ -139,6 +144,7 @@ export class CanvasController {
       return false; // unreadable path data
     }
     this.nodeEdit = id;
+    this.setActiveNode(null);
     if (this.selection.length !== 1 || this.selection[0] !== id) this.select([id]);
     this.onNodeEdit(true);
     this.drawOverlay();
@@ -148,6 +154,7 @@ export class CanvasController {
   exitNodeEdit(): void {
     if (this.nodeEdit === null) return;
     this.nodeEdit = null;
+    this.setActiveNode(null);
     this.onNodeEdit(false);
     this.drawOverlay();
   }
@@ -158,8 +165,83 @@ export class CanvasController {
     this.drawOverlay();
   }
 
+  private setActiveNode(seg: number | null): void {
+    this.activeNode = seg;
+    if (seg === null || this.nodeEdit === null) return this.onActiveNode(null);
+    const segs = this.editor.doc.getPath(this.nodeEdit);
+    this.onActiveNode({ seg, smooth: isSmooth(segs, seg), isStart: segs[seg]?.cmd === "M" });
+  }
+
+  /**
+   * Node-level change on the edited path: "delete", "corner"/"smooth" apply to the selected
+   * point, "line"/"curve" to the segment that ends at it. One undo step.
+   */
+  nodeAction(action: "delete" | "corner" | "smooth" | "line" | "curve"): void {
+    const id = this.nodeEdit;
+    const seg = this.activeNode;
+    if (id === null || seg === null) return;
+    const op: PathNodeOp =
+      action === "delete" ? { action, seg } : action === "corner" || action === "smooth" ? { action: "node", seg, type: action } : { action: "segment", seg, type: action };
+    const at = this.editor.doc.getPath(id)[seg];
+    const r = this.editor.execute({ op: "pathNode", id, ...op });
+    if (!r.ok) {
+      this.onNodeError(r.error.message);
+      return;
+    }
+    // Indices can shift (an arc becomes several curves); keep the same point selected.
+    this.setActiveNode(action === "delete" || !at || at.cmd === "Z" ? null : this.nodeAtPoint(id, at.p));
+    this.drawOverlay();
+  }
+  /** Told when a node action is refused (for the status bar). */
+  onNodeError: (message: string) => void = () => {};
+
+  private nodeAtPoint(id: NodeId, p: [number, number]): number | null {
+    const segs = this.editor.doc.getPath(id);
+    const i = segs.findIndex((s) => s.cmd !== "Z" && Math.abs(s.p[0] - p[0]) < 1e-6 && Math.abs(s.p[1] - p[1]) < 1e-6);
+    return i < 0 ? null : i;
+  }
+
+  /** The spot on the edited path's outline within 8 screen px of a pointer event, if any. */
+  private nearOutline(e: MouseEvent): { seg: number; t: number } | null {
+    const id = this.nodeEdit;
+    const ctm = id !== null ? this.elOf.get(id)?.getScreenCTM() : null;
+    if (id === null || !ctm) return null;
+    const m = mat(ctm);
+    const local = apply(invert(m), { x: e.clientX, y: e.clientY });
+    const hit = nearestOnPath(this.editor.doc.getPath(id), [local.x, local.y]);
+    if (!hit) return null;
+    const onScreen = apply(m, { x: hit.point[0], y: hit.point[1] });
+    return Math.hypot(onScreen.x - e.clientX, onScreen.y - e.clientY) <= 8 ? { seg: hit.seg, t: hit.t } : null;
+  }
+
   private doubleClick(e: MouseEvent): void {
     if (this._tool !== "select") return;
+    if (this.nodeEdit !== null) {
+      // On a point: toggle corner / smooth. On the outline: add a point there.
+      const ref = e.target instanceof Element ? e.target.getAttribute("data-node") : null;
+      if (ref?.endsWith(":p")) {
+        const seg = Number(ref.split(":")[0]);
+        this.setActiveNode(seg);
+        this.nodeAction(isSmooth(this.editor.doc.getPath(this.nodeEdit), seg) ? "corner" : "smooth");
+        return;
+      }
+      const spot = this.nearOutline(e);
+      if (spot && spot.t > 0.001 && spot.t < 0.999) {
+        const id = this.nodeEdit;
+        // Like a drag, the new point lands on 2 decimals (its handles follow; the outline moves < 0.005).
+        const at = pointOnSegment(this.editor.doc.getPath(id), spot.seg, spot.t);
+        const r = this.editor.execute({
+          op: "batch",
+          commands: [
+            { op: "pathNode", id, action: "insert", seg: spot.seg, t: spot.t },
+            { op: "pathEdit", id, moves: [{ seg: spot.seg, point: "p", to: [round(at[0]), round(at[1])] }] },
+          ],
+        });
+        if (r.ok) this.setActiveNode(spot.seg);
+        this.drawOverlay();
+        return;
+      }
+    }
     const hit = this.pick(e.target, true);
     if (hit && this.editor.doc.getNode(hit).tag === "path") this.editNodes(hit);
   }
@@ -207,7 +289,7 @@ export class CanvasController {
       nodes.push([i, end]);
       prev = end;
     });
-    for (const [i, p] of nodes) o.appendChild(svgEl("rect", { class: "handle node", "data-node": `${i}:p`, x: p.x - 4, y: p.y - 4, width: 8, height: 8 }));
+    for (const [i, p] of nodes) o.appendChild(svgEl("rect", { class: i === this.activeNode ? "handle node active" : "handle node", "data-node": `${i}:p`, x: p.x - 4, y: p.y - 4, width: 8, height: 8 }));
   }
 
   private startNodeDrag(ref: string): void {
@@ -216,6 +298,7 @@ export class CanvasController {
     const ctm = el?.getScreenCTM();
     if (!id || !el || !ctm) return;
     const [seg, point] = ref.split(":") as [string, PathPoint];
+    if (point === "p") this.setActiveNode(Number(seg));
     this.gesture = { kind: "node", id, el, segs: this.editor.doc.getPath(id), seg: Number(seg), point, inv: invert(mat(ctm)), original: el.getAttribute("d"), handles: true };
   }
 
@@ -270,6 +353,15 @@ export class CanvasController {
     };
     walk(svg);
     this.host.replaceChildren(svg);
+    // The document changed (an undo, a drag): refresh what the inspector shows for the selected point.
+    if (this.nodeEdit !== null && this.activeNode !== null) {
+      try {
+        const n = this.editor.doc.getPath(this.nodeEdit).length;
+        this.setActiveNode(this.activeNode < n ? this.activeNode : null);
+      } catch {
+        this.setActiveNode(null);
+      }
+    }
     this.drawOverlay();
   }
 
@@ -437,10 +529,13 @@ export class CanvasController {
       this.startDraw(this._tool, p);
       return;
     }
-    if (this.nodeEdit !== null && this.pick(e.target, true) !== this.nodeEdit) this.exitNodeEdit();
+    // Near the outline counts as on the path, so a double-click can add a point to a thin stroke.
+    if (this.nodeEdit !== null && this.pick(e.target, true) !== this.nodeEdit && !this.nearOutline(e)) this.exitNodeEdit();
     if (this.nodeEdit !== null) {
       e.preventDefault();
-      return; // clicks on the edited path itself do nothing; drag its points
+      this.setActiveNode(null);
+      this.drawOverlay();
+      return; // clicks on the edited path itself only clear the point selection; drag its points
     }
     const hit = this.pick(e.target, e.ctrlKey || e.metaKey);
     if (hit) {
@@ -717,7 +812,10 @@ export class CanvasController {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      if (this.nodeEdit !== null) return; // deleting single nodes is not supported yet; don't delete the path
+      if (this.nodeEdit !== null) {
+        this.nodeAction("delete"); // the selected point, never the whole path
+        return;
+      }
       this.deleteSelection();
       return;
     }
@@ -789,3 +887,10 @@ function drawAttrs(tool: "rect" | "ellipse" | "line", a: Point, b: Point, constr
   return { cx: round(r.x + r.width / 2), cy: round(r.y + r.height / 2), rx: round(r.width / 2), ry: round(r.height / 2) };
 }
 
+/** Whether the point at the end of segment `seg` has its two handles in line. */
+function isSmooth(segs: PathSegment[], seg: number): boolean {
+  const s = segs[seg];
+  if (s?.cmd === "C") return oppositeHandle(segs, seg, "c2") !== null;
+  const next = segs[seg + 1];
+  return next?.cmd === "C" ? oppositeHandle(segs, seg + 1, "c1") !== null : false;
+}
