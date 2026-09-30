@@ -1,4 +1,4 @@
-import { TEXT_TAG, type NodeId, type TreeNode } from "@svg-editor/model";
+import { TEXT_TAG, type NodeId, type TreeNode } from "@svg-editor/sdk";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const KNOWN_NS: Record<string, string> = {

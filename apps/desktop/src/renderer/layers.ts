@@ -1,4 +1,4 @@
-import { TEXT_TAG, type Command, type NodeId, type SvgDocument, type TreeNode } from "@svg-editor/model";
+import { TEXT_TAG, type Command, type Editor, type NodeId, type TreeNode } from "@svg-editor/sdk";
 
 /** Elements that can hold other elements (targets for "drop inside"). */
 const CONTAINERS = new Set(["g", "svg", "a", "defs", "clipPath", "mask", "pattern", "symbol", "marker", "switch", "text", "textPath", "linearGradient", "radialGradient"]);
@@ -17,13 +17,16 @@ export class LayersPanel {
 
   constructor(
     private readonly root: HTMLElement,
-    private doc: SvgDocument,
-    private readonly onSelect: (ids: NodeId[]) => void,
+    private editor: Editor,
     private readonly onError: (message: string) => void,
   ) {}
 
-  setDocument(doc: SvgDocument): void {
-    this.doc = doc;
+  private get doc() {
+    return this.editor.doc;
+  }
+
+  setEditor(editor: Editor): void {
+    this.editor = editor;
     this.collapsed.clear();
     this.render();
   }
@@ -40,7 +43,7 @@ export class LayersPanel {
   }
 
   render(): void {
-    const tree = this.doc.getTree()!;
+    const tree = this.doc.getTree();
     const rows: HTMLElement[] = [];
     const walk = (n: TreeNode, depth: number) => {
       for (const c of n.children) {
@@ -57,7 +60,7 @@ export class LayersPanel {
       rows.push(empty);
     }
     this.root.replaceChildren(...rows);
-    this.setSelection(this.selection.filter((id) => this.doc.getNode(id)));
+    this.setSelection(this.selection.filter((id) => this.doc.has(id)));
   }
 
   private row(n: TreeNode, depth: number): HTMLElement {
@@ -95,7 +98,7 @@ export class LayersPanel {
           ? this.selection.filter((s) => s !== n.id)
           : [...this.selection, n.id]
         : [n.id];
-      this.onSelect(ids);
+      this.editor.select(ids);
     });
 
     row.addEventListener("dragstart", (e) => {
@@ -122,9 +125,9 @@ export class LayersPanel {
       if (!id || id === n.id) return;
       const cmd = this.moveCommand(id, n.id, zoneFor(e, row, CONTAINERS.has(n.tag)));
       if (!cmd) return;
-      const r = this.doc.execute(cmd);
+      const r = this.editor.execute(cmd);
       if (!r.ok) this.onError(`${r.error.message} ${r.error.hint}`);
-      else this.onSelect([id]);
+      else this.editor.select([id]);
     });
     return row;
   }
@@ -138,12 +141,12 @@ export class LayersPanel {
   /** `move` uses the node's final index among the new parent's children. */
   private moveCommand(id: NodeId, target: NodeId, zone: Zone): Command | null {
     if (zone === "inside") {
-      const kids = this.doc.getNode(target)!.children.filter((c) => c !== id);
+      const kids = this.doc.getNode(target).children.filter((c) => c !== id);
       return { op: "move", id, parent: target, index: kids.length };
     }
-    const parent = this.doc.getNode(target)!.parent;
+    const parent = this.doc.getNode(target).parent;
     if (!parent) return null;
-    const siblings = this.doc.getNode(parent)!.children.filter((c) => c !== id);
+    const siblings = this.doc.getNode(parent).children.filter((c) => c !== id);
     const at = siblings.indexOf(target) + (zone === "after" ? 1 : 0);
     return { op: "move", id, parent, index: at };
   }

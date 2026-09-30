@@ -1,0 +1,24 @@
+{
+  "name": "@svg-editor/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public API for building and editing SVG documents: commands, queries, undo, selection, formatting-preserving text. Used by the desktop app, scripts and (Phase 2) the AI tools.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "example": "node --experimental-strip-types examples/bar-chart.ts"
+  },
+  "dependencies": {
+    "@svg-editor/model": "workspace:*",
+    "@svg-editor/parser": "workspace:*"
+  }
+}

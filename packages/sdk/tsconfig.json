@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "types": [],
+    "customConditions": [
+      "source"
+    ]
+  },
+  "include": [
+    "src"
+  ]
+}

@@ -6,6 +6,7 @@ Plan: `docs/svg-editor-plan.md`. Decisions made along the way: `docs/decisions.m
 - `packages/model` and `packages/sdk` must stay pure TS: no DOM, no Electron, no framework imports.
 - All document mutations go through commands. Never mutate model state directly from UI code.
 - SDK returns IDs and plain data only, never DOM nodes.
+- The desktop renderer reads and writes documents only through `@svg-editor/sdk` (type imports from model/parser are fine). `packages/sdk/test/ui-parity.test.ts` enforces this; a new UI action must get an SDK mapping there or be marked view-only.
 - Code-pane edits must be minimal text patches; never reserialize the whole document on a canvas edit.
 - Renderer has no Node access; use the preload bridge.
 - Every new command needs: type, handler, undo, unit tests, and an SDK method.

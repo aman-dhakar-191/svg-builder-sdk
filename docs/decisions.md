@@ -70,3 +70,15 @@
 | Grid and snapping | Grid spacing is a 1/2/5 x 10^n number of user units, at least 12 screen px, so it adapts to zoom and to tiny icons vs large pages. Snapping (when on) puts drawn shapes' corners and a moved selection's top-left corner on the grid. Resize and rotate do not snap (rotate has Shift for 15 degree steps). | "Basic snapping" per the plan; snapping to other objects' edges is a later step. |
 | PNG export | The model is rendered through an `<img>` into a canvas at the drawing's intrinsic size (1x). | External images referenced by URL are not included (CSP blocks remote loads). A scale option is easy to add. |
 | Shared types | The preload bridge's types live in `src/shared/api.ts`, used by preload and renderer. | The renderer must not import Electron. |
+
+## Phase 1, step 6: SDK hardening (Phase 1 exit)
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Package | `@svg-editor/sdk`: `createEditor()` returns an `Editor` with `doc` (commands and queries), undo/redo, `batch` / `beginBatch`, selection, source text and bridges. Documented in `packages/sdk/README.md`. | Plan section 7. |
+| Errors | Write methods throw `SvgEditorError` (`code`, `message`, `hint`, `path` for batches, `parse` with line/column). `editor.execute(command)` is the non-throwing form for the Phase 2 tool dispatcher. `toJSON()` gives plain data for tool results. | |
+| Attribute values | Numbers accepted and written with at most 6 decimals; non-finite numbers are `INVALID_ATTR`. | Plan example `add("rect", { x: 10 })`. |
+| Selection | Moved from the canvas into the SDK (`select`, `getSelection`, `selectInRect`, `onSelectionChange`); nodes that disappear drop out automatically. | Was UI-only: found by the exit review. The AI needs `getSelection()`. |
+| Renderer bridges | `rasterize` (PNG export) and `measure` (bounding boxes of paths and text) are injected; the desktop app provides DOM implementations. | Keeps the SDK pure TS. Headless PNG export would need a rasterizer library (e.g. resvg), which needs your approval. |
+| Exit test | The app uses only the SDK for documents; `ui-parity.test.ts` checks the renderer's imports, runs an SDK equivalent for every UI action, and fails if a menu action or tool is added without an SDK mapping or a view-only mark. | View-only: zoom, pan, grid, snapping, tool choice. |
+| Headless example | `examples/bar-chart.ts` builds a chart from data; CI runs it under plain Node against the built packages. | |

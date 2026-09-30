@@ -25,8 +25,7 @@ test.afterEach(async () => {
 
 type Editor = {
   view: { state: { doc: { toString(): string } } };
-  source: { fallbacks: number; getSource(id: string): { start: number; end: number } | undefined; doc: { query(q?: object): string[]; getNode(id: string): { tag: string; attrs: Record<string, string> } } };
-  canvas: { getSelection(): string[] };
+  editor: { patchFallbacks: number; getSourceRange(id: string): { start: number; end: number } | undefined; doc: { query(q?: object): string[]; getNode(id: string): { tag: string; attrs: Record<string, string> } } };
   viewport: { zoom: number; gridStep(): number };
 };
 /** Runs `fn` in the page with the app's debug handle (source as a string: page CSP forbids eval, CDP does not). */
@@ -72,10 +71,10 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
 
     // Visual edit: select the first shape in the layers panel, nudge it on the canvas.
-    const target = await editor((e) => e.source.doc.query().find((id) => ["rect", "path", "circle", "polygon", "ellipse"].includes(e.source.doc.getNode(id).tag))!);
+    const target = await editor((e) => e.editor.doc.query().find((id) => ["rect", "path", "circle", "polygon", "ellipse"].includes(e.editor.doc.getNode(id).tag))!);
     const range = await editor((e) => {
-      const id = e.source.doc.query().find((i) => ["rect", "path", "circle", "polygon", "ellipse"].includes(e.source.doc.getNode(i).tag))!;
-      return e.source.getSource(id)!;
+      const id = e.editor.doc.query().find((i) => ["rect", "path", "circle", "polygon", "ellipse"].includes(e.editor.doc.getNode(i).tag))!;
+      return e.editor.getSourceRange(id)!;
     });
     await page.locator(`.layer-row[data-id="${target}"]`).click();
     await page.locator("#canvas").focus();
@@ -117,7 +116,7 @@ for (const name of ["inkscape.svg", "figma.svg", "illustrator.svg", "handwritten
     expect(isSubsequence(after.slice(1, -2), savedLines)).toBe(true);
     // Comments and declarations survive.
     for (const keep of original.match(/<!--[\s\S]*?-->|<\?xml[^>]*\?>|<!DOCTYPE[^[]*/g) ?? []) expect(saved).toContain(keep);
-    expect(await editor((e) => e.source.fallbacks)).toBe(0);
+    expect(await editor((e) => e.editor.patchFallbacks)).toBe(0);
   });
 }
 
@@ -196,8 +195,8 @@ test("zoom, grid and snapping", async () => {
   await page.mouse.move(box.x + box.width * 0.77, box.y + box.height * 0.87, { steps: 4 });
   await page.mouse.up();
   const attrs = await editor((e) => {
-    const rects = e.source.doc.query({ tag: "rect" });
-    return e.source.doc.getNode(rects[rects.length - 1]!).attrs;
+    const rects = e.editor.doc.query({ tag: "rect" });
+    return e.editor.doc.getNode(rects[rects.length - 1]!).attrs;
   });
   for (const k of ["x", "y", "width", "height"]) {
     const v = Number(attrs[k]);

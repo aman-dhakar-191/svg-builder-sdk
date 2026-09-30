@@ -50,6 +50,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Headless SDK example
+        run: |
+          pnpm --filter @svg-editor/sdk example "$RUNNER_TEMP/chart.svg"
+          grep -q "Downloads per month" "$RUNNER_TEMP/chart.svg"
+
       - name: End-to-end (Electron app)
         run: xvfb-run -a pnpm --filter @svg-editor/desktop test:e2e
 

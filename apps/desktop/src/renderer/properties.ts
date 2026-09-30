@@ -1,4 +1,4 @@
-import { TEXT_TAG, type NodeId, type SvgDocument } from "@svg-editor/model";
+import { TEXT_TAG, type Editor, type NodeId } from "@svg-editor/sdk";
 
 /**
  * Properties panel: the selected element's attributes, editable in place.
@@ -11,12 +11,16 @@ export class PropertiesPanel {
 
   constructor(
     private readonly root: HTMLElement,
-    private doc: SvgDocument,
+    private editor: Editor,
     private readonly onError: (message: string) => void,
   ) {}
 
-  setDocument(doc: SvgDocument): void {
-    this.doc = doc;
+  private get doc() {
+    return this.editor.doc;
+  }
+
+  setEditor(editor: Editor): void {
+    this.editor = editor;
     this.selection = [];
     this.render();
   }
@@ -28,7 +32,7 @@ export class PropertiesPanel {
 
   render(): void {
     const focused = document.activeElement instanceof HTMLElement && this.root.contains(document.activeElement) ? document.activeElement.dataset.field : undefined;
-    const ids = this.selection.filter((id) => this.doc.getNode(id));
+    const ids = this.selection.filter((id) => this.doc.has(id));
     if (ids.length !== 1) {
       const p = document.createElement("p");
       p.className = "panel-empty";
@@ -37,7 +41,7 @@ export class PropertiesPanel {
       return;
     }
     const id = ids[0]!;
-    const node = this.doc.getNode(id)!;
+    const node = this.doc.getNode(id);
     const children: HTMLElement[] = [];
 
     const title = document.createElement("div");
@@ -57,7 +61,7 @@ export class PropertiesPanel {
       input.setAttribute("aria-label", name);
       label.htmlFor = input.id = `prop-${name.replace(/[^\w-]/g, "_")}`;
       const commit = () => {
-        if (input.value !== this.doc.getNode(id)?.attrs[name]) this.set(id, { [name]: input.value });
+        if (this.doc.has(id) && input.value !== this.doc.getNode(id).attrs[name]) this.set(id, { [name]: input.value });
       };
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") commit();
@@ -94,7 +98,7 @@ export class PropertiesPanel {
     children.push(add);
 
     // Text content for elements that hold only text.
-    const kids = node.children.map((c) => this.doc.getNode(c)!);
+    const kids = node.children.map((c) => this.doc.getNode(c));
     if (kids.every((k) => k.tag === TEXT_TAG) && ["text", "tspan", "title", "desc", "textPath"].includes(node.tag)) {
       const text = kids.map((k) => k.text ?? "").join("");
       const label = document.createElement("label");
@@ -106,7 +110,7 @@ export class PropertiesPanel {
       area.dataset.field = "text";
       area.setAttribute("aria-label", "Text content");
       area.addEventListener("change", () => {
-        const r = this.doc.execute({ op: "setText", id, text: area.value });
+        const r = this.editor.execute({ op: "setText", id, text: area.value });
         if (!r.ok) this.onError(`${r.error.message} ${r.error.hint}`);
       });
       children.push(label, area);
@@ -117,7 +121,7 @@ export class PropertiesPanel {
   }
 
   private set(id: NodeId, attrs: Record<string, string | null>): void {
-    const r = this.doc.execute({ op: "set", id, attrs });
+    const r = this.editor.execute({ op: "set", id, attrs });
     if (!r.ok) this.onError(`${r.error.message} ${r.error.hint}`);
   }
 }

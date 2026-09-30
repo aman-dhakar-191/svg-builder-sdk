@@ -17,9 +17,9 @@ test.afterEach(async () => {
   await app.close();
 });
 
-type Win = { editor: { view: { state: { doc: { toString(): string } } }; source: { fallbacks: number; doc: { canUndo(): boolean } } } };
+type Win = { editor: { view: { state: { doc: { toString(): string } } }; editor: { patchFallbacks: number; canUndo(): boolean } } };
 const code = () => page.evaluate(() => (window as unknown as Win).editor.view.state.doc.toString());
-const fallbacks = () => page.evaluate(() => (window as unknown as Win).editor.source.fallbacks);
+const fallbacks = () => page.evaluate(() => (window as unknown as Win).editor.editor.patchFallbacks);
 const rect = () => page.locator("#canvas svg > rect");
 const circle = () => page.locator("#canvas svg > circle");
 
@@ -186,7 +186,7 @@ test("Escape cancels a drag without touching the model", async () => {
   await page.mouse.up();
   await expect(rect()).not.toHaveAttribute("transform", /./);
   expect(await code()).toBe(original);
-  expect(await page.evaluate(() => (window as unknown as Win).editor.source.doc.canUndo())).toBe(false);
+  expect(await page.evaluate(() => (window as unknown as Win).editor.editor.canUndo())).toBe(false);
 });
 
 test("resizing a rotated shape follows its own axes without jumping", async () => {

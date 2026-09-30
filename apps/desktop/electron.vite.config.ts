@@ -5,6 +5,7 @@ import { defineConfig } from "electron-vite";
 const alias = {
   "@svg-editor/model": resolve(__dirname, "../../packages/model/src/index.ts"),
   "@svg-editor/parser": resolve(__dirname, "../../packages/parser/src/index.ts"),
+  "@svg-editor/sdk": resolve(__dirname, "../../packages/sdk/src/index.ts"),
 };
 
 export default defineConfig({

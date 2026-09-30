@@ -20,3 +20,13 @@ export type {
   TreeNode,
   Vec2,
 } from "./types.js";
+export {
+  applyToPoint,
+  formatNumber,
+  IDENTITY,
+  multiply,
+  parseTransform,
+  transformBBox,
+  unionBBox,
+  type Matrix,
+} from "./geometry.js";

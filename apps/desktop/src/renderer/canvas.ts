@@ -1,12 +1,10 @@
-import { TEXT_TAG, type Command, type NodeId } from "@svg-editor/model";
-import type { SourceDocument } from "@svg-editor/parser";
+import type { BBox, Command, Editor, NodeId } from "@svg-editor/sdk";
 import {
   angleBetween,
   anchorPoint,
   apply,
   applyLinear,
   boundsOf,
-  contains,
   corners,
   HANDLES,
   invert,
@@ -69,20 +67,20 @@ export class CanvasController {
   private svg: SVGSVGElement | null = null;
   private nodeOf = new WeakMap<Element, NodeId>();
   private elOf = new Map<NodeId, SVGGraphicsElement>();
-  private selection: NodeId[] = [];
   private gesture: Gesture | null = null;
   private _tool: Tool = "select";
   private textInput: HTMLInputElement | null = null;
   private spaceDown = false;
   snapper: Snapper = { snapping: false, snapRoot: (p) => p };
+  private unsubscribe: () => void;
 
   constructor(
     private readonly host: HTMLElement,
     private readonly overlay: SVGSVGElement,
-    private source: SourceDocument,
-    private readonly onSelection: (ids: NodeId[]) => void,
+    private editor: Editor,
     private readonly onTool: (tool: Tool) => void,
   ) {
+    this.unsubscribe = editor.onSelectionChange(() => this.drawOverlay());
     host.addEventListener("keyup", (e) => {
       if (e.key === " ") this.spaceDown = false;
     });
@@ -95,14 +93,19 @@ export class CanvasController {
     host.addEventListener("scroll", () => this.drawOverlay());
   }
 
-  /** Switches to another document (after Open / New). Selection and gestures reset. */
-  setSource(source: SourceDocument): void {
+  /** Switches to another document (after Open / New). Gestures reset. */
+  setEditor(editor: Editor): void {
     this.cancelGesture();
     this.closeText();
-    this.source = source;
-    this.selection = [];
+    this.unsubscribe();
+    this.editor = editor;
+    this.unsubscribe = editor.onSelectionChange(() => this.drawOverlay());
     this.render();
-    this.onSelection([]);
+  }
+
+  /** The selection lives in the SDK editor; the canvas only draws it. */
+  private get selection(): NodeId[] {
+    return this.editor.getSelection();
   }
 
   /** Redraws selection outlines (after zoom or scroll). */
@@ -120,20 +123,32 @@ export class CanvasController {
     this.onTool(tool);
   }
 
-  getSelection(): NodeId[] {
-    return [...this.selection];
+  private select(ids: NodeId[]): void {
+    this.editor.select(ids.filter((id) => this.editor.doc.has(id)));
   }
 
-  /** Selects exactly these nodes (e.g. from the code cursor). */
-  select(ids: NodeId[], notify = true): void {
-    this.selection = ids.filter((id, i) => ids.indexOf(id) === i && this.elOf.has(id));
-    this.drawOverlay();
-    if (notify) this.onSelection(this.getSelection());
+  /**
+   * Measure bridge for the SDK: an element's bounding box in root user
+   * units, from the live DOM (works for paths and text, unlike headless).
+   */
+  measure(id: NodeId): BBox | null {
+    const el = this.elOf.get(id);
+    const rootCtm = this.svg?.getScreenCTM();
+    const ctm = el?.getScreenCTM();
+    if (!el || !rootCtm || !ctm) return null;
+    try {
+      const b = el.getBBox();
+      const toRoot = invert(mat(rootCtm));
+      const r = boundsOf(corners({ x: b.x, y: b.y, width: b.width, height: b.height }).map((p) => apply(toRoot, apply(mat(ctm), p))));
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    } catch {
+      return null;
+    }
   }
 
   /** Rebuilds the canvas from the model and keeps the selection where possible. */
   render(): void {
-    const { svg, nodeOf } = renderTree(this.source.doc.getTree()!);
+    const { svg, nodeOf } = renderTree(this.editor.doc.getTree());
     this.svg = svg;
     this.nodeOf = nodeOf;
     this.elOf.clear();
@@ -144,18 +159,14 @@ export class CanvasController {
     };
     walk(svg);
     this.host.replaceChildren(svg);
-    const kept = this.selection.filter((id) => this.elOf.has(id));
-    const changed = kept.length !== this.selection.length;
-    this.selection = kept;
     this.drawOverlay();
-    if (changed) this.onSelection(this.getSelection());
   }
 
   // ------------------------------------------------------------ commands
 
   private run(commands: Command[]): void {
     if (commands.length === 0) return;
-    const r = this.source.doc.execute(commands.length === 1 ? commands[0]! : { op: "batch", commands });
+    const r = this.editor.execute(commands.length === 1 ? commands[0]! : { op: "batch", commands });
     if (!r.ok) console.warn("canvas command failed", r.error);
   }
 
@@ -210,30 +221,14 @@ export class CanvasController {
     }
     if (chain.length === 0) return null;
     if (deep) return chain[0]!;
-    const doc = this.source.doc;
+    const doc = this.editor.doc;
     for (let i = chain.length - 1; i >= 0; i--) {
-      const parent = doc.getNode(doc.getNode(chain[i]!)!.parent!)!;
+      const parent = doc.getNode(doc.getNode(chain[i]!).parent!);
       if (parent.id === doc.root || isLayer(parent.attrs)) {
-        if (!isLayer(doc.getNode(chain[i]!)!.attrs)) return chain[i]!;
+        if (!isLayer(doc.getNode(chain[i]!).attrs)) return chain[i]!;
       }
     }
     return chain[0]!;
-  }
-
-  /** Candidates for marquee selection: children of the root and of layers. */
-  private topLevel(): NodeId[] {
-    const doc = this.source.doc;
-    const out: NodeId[] = [];
-    const walk = (id: NodeId) => {
-      for (const c of doc.getNode(id)!.children) {
-        const n = doc.getNode(c)!;
-        if (n.tag === TEXT_TAG || !GRAPHIC.has(n.tag)) continue;
-        if (n.tag === "g" && isLayer(n.attrs)) walk(c);
-        else out.push(c);
-      }
-    };
-    walk(doc.root);
-    return out;
   }
 
   // ------------------------------------------------------------- overlay
@@ -344,7 +339,7 @@ export class CanvasController {
     const el = svgEl(tag, tool === "line" ? { stroke: DRAW_STYLE.stroke, "stroke-width": "2" } : { ...DRAW_STYLE });
     this.svg.appendChild(el);
     this.gesture = { kind: "draw", tool, start: this.snapper.snapRoot(this.toRoot(p)), el };
-    this.select([], true);
+    this.select([]);
   }
 
   /** Adjusts a screen drag so the selection's top-left corner lands on the grid. */
@@ -454,11 +449,12 @@ export class CanvasController {
         g.rect.remove();
         const r = rectFromPoints(g.start, this.screenPoint(e));
         if (r.width < DRAG_THRESHOLD && r.height < DRAG_THRESHOLD) return;
-        const inside = this.topLevel().filter((id) => {
-          const it = this.itemFor(id);
-          return it !== null && contains(r, boundsOf(this.screenCorners(it)));
-        });
-        this.select(g.additive ? [...this.selection, ...inside] : inside);
+        // Same path as a script: SDK selectInRect in root units (measured via the DOM bridge).
+        const before = this.selection;
+        const a = this.toRoot({ x: r.x, y: r.y });
+        const b = this.toRoot({ x: r.x + r.width, y: r.y + r.height });
+        const inside = this.editor.selectInRect(rectFromPoints(a, b));
+        if (g.additive) this.select([...before, ...inside]);
         return;
       }
       case "draw": {
@@ -469,7 +465,7 @@ export class CanvasController {
         if (!(size > 0.5)) return;
         const tag = g.tool === "rect" ? "rect" : g.tool === "ellipse" ? "ellipse" : "line";
         const style: Record<string, string> = g.tool === "line" ? { stroke: DRAW_STYLE.stroke, "stroke-width": "2" } : { ...DRAW_STYLE };
-        const r = this.source.doc.execute({ op: "add", tag, attrs: { ...stringify(attrs), ...style } });
+        const r = this.editor.execute({ op: "add", tag, attrs: { ...stringify(attrs), ...style } });
         if (r.ok) {
           this.setTool("select");
           this.select([r.result.id]);
@@ -520,16 +516,13 @@ export class CanvasController {
     const text = input.value;
     this.closeText();
     if (text.trim() === "") return;
-    // Two commands, one undo step.
-    const doc = this.source.doc;
-    const tx = doc.beginTransaction();
-    const added = doc.execute({ op: "add", tag: "text", attrs: { x: input.dataset.x!, y: input.dataset.y!, "font-family": "sans-serif", "font-size": "16" } });
-    if (added.ok && doc.execute({ op: "setText", id: added.result.id, text }).ok) {
-      tx.commit();
+    // add + setText in one undo step.
+    try {
+      const id = this.editor.doc.addText(text, { x: input.dataset.x!, y: input.dataset.y!, "font-family": "sans-serif", "font-size": "16" });
       this.setTool("select");
-      this.select([added.result.id]);
-    } else {
-      tx.rollback();
+      this.select([id]);
+    } catch (e) {
+      console.warn("text tool failed", e);
     }
   }
 

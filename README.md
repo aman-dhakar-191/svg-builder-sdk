@@ -8,7 +8,7 @@ Desktop SVG editor (Electron + TypeScript) with a code pane, a visual canvas, an
 packages/
   model/    pure-TS document model: nodes, commands, history, queries   (Phase 1, step 1)
   parser/   SVG <-> model with source ranges, minimal patches, ID reconcile (step 2)
-  sdk/      public API wrapping the model                                (step 6, not started)
+  sdk/      public API: commands, queries, undo, selection, text          (step 6)
 apps/
   desktop/  Electron app: code pane + live canvas                          (step 3)
 ```
