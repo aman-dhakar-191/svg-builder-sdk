@@ -609,6 +609,21 @@ export class DocumentApi {
     return this.run({ op: "convertToPath", id }).id;
   }
 
+  /**
+   * Combines sibling shapes (paths or basic shapes) into one <path>, bottom to top:
+   * union, subtract (the bottom one minus the others), intersect or exclude. The result
+   * takes the bottom shape's attributes and place; returns its ID. One undo step.
+   */
+  boolean(operation: "union" | "subtract" | "intersect" | "exclude", ids: NodeId[]): NodeId {
+    return this.run({ op: "boolean", operation, ids }).id;
+  }
+
+  /** Refits a <path> with fewer points; `tolerance` is the largest deviation in its units (default 1). */
+  simplify(id: NodeId, options: { tolerance?: number } = {}): { d: string; nodes: { before: number; after: number } } {
+    const r = this.run({ op: "simplify", id, ...(options.tolerance !== undefined ? { tolerance: options.tolerance } : {}) });
+    return { d: r.d, nodes: r.nodes };
+  }
+
   /** Removes a <g>, keeping its children in place; returns their IDs. */
   ungroup(id: NodeId): NodeId[] {
     return this.run({ op: "ungroup", id }).ids;

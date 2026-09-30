@@ -99,3 +99,14 @@ test("renderer has no Node access", async () => {
   expect(await page.evaluate(() => typeof (globalThis as { process?: unknown }).process)).toBe("undefined");
   expect(await page.evaluate(() => (window as unknown as { desktop: { platform: string } }).desktop.platform)).toBe("linux");
 });
+
+test("the main process bundle needs only Electron and Node built-ins (no document model, no paper.js)", async () => {
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const dir = fileURLToPath(new URL("../out/main/", import.meta.url));
+  const required = new Set<string>();
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".cjs"))) {
+    for (const m of readFileSync(`${dir}/${f}`, "utf8").matchAll(/require\("([^"]+)"\)/g)) required.add(m[1]!);
+  }
+  const bad = [...required].filter((r) => r !== "electron" && !r.startsWith("node:") && !r.startsWith("./"));
+  expect(bad).toEqual([]);
+});

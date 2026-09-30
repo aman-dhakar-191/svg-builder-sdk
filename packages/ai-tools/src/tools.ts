@@ -148,6 +148,22 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "combine_shapes",
+    description:
+      'Combines two or more sibling shapes (paths or basic shapes) into one <path>, like a vector editor\'s Pathfinder: "union" merges them, "subtract" cuts all the others out of the bottom-most one (e.g. a crescent: a circle minus an offset circle drawn on top), "intersect" keeps only the shared area, "exclude" keeps everything except the overlaps. The result gets the bottom shape\'s style and place; the operands are removed. Returns the new ID.',
+    input_schema: {
+      type: "object",
+      properties: { operation: { type: "string", enum: ["union", "subtract", "intersect", "exclude"] }, ids: ids(2) },
+      required: ["operation", "ids"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "simplify_path",
+    description: "Refits a <path> with fewer points while keeping its look. tolerance: largest allowed deviation in the path's units (default 1; larger = smoother, fewer points).",
+    input_schema: { type: "object", properties: { id, tolerance: { type: "number" } }, required: ["id"], additionalProperties: false },
+  },
+  {
     name: "set_text",
     description: "Replaces the text content of an element such as <text>.",
     input_schema: { type: "object", properties: { id, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },

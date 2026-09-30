@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "paper": "0.12.18",
     "svgpath": "^2.6.0"
   }
 }

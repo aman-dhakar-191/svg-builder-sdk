@@ -222,6 +222,24 @@ function guard(fn: () => void): true {
   return true;
 }
 
+// ---------------------------------------------------------------- paths
+
+/** Path menu booleans: the selected siblings become one path (one undo step). */
+function combine(operation: "union" | "subtract" | "intersect" | "exclude"): void {
+  guard(() => {
+    flush();
+    const ids = editor.getSelection();
+    if (ids.length < 2) return showStatus(`Select two or more shapes to ${operation}.`, true);
+    try {
+      const id = editor.doc.boolean(operation, ids);
+      editor.select([id]);
+      showStatus(`${operation[0]!.toUpperCase()}${operation.slice(1)} of ${ids.length} shapes. Ctrl+Z to undo.`, false);
+    } catch (e) {
+      showStatus(e instanceof Error ? e.message : String(e), true);
+    }
+  });
+}
+
 // -------------------------------------------------------------- lock demo
 
 function sleep(ms: number, signal: AbortSignalLike): Promise<void> {
@@ -440,10 +458,28 @@ const menu: Record<MenuAction, () => void> = {
       if (paths.length === 1) canvas.editNodes(paths[0]!);
       else showStatus(`Converted ${paths.length} shapes to paths.`, false);
     }),
+  union: () => combine("union"),
+  subtract: () => combine("subtract"),
+  intersect: () => combine("intersect"),
+  exclude: () => combine("exclude"),
+  simplify: () =>
+    guard(() => {
+      flush();
+      const paths = editor.getSelection().filter((id) => editor.doc.getNode(id).tag === "path");
+      if (paths.length === 0) return showStatus("Select one or more paths to simplify (convert shapes first with Path > Convert to Path).", true);
+      try {
+        const results = editor.batch(() => paths.map((id) => editor.doc.simplify(id))); // one undo step
+        const before = results.reduce((n, r) => n + r.nodes.before, 0);
+        const after = results.reduce((n, r) => n + r.nodes.after, 0);
+        showStatus(`Simplified: ${before} → ${after} points. Ctrl+Z to undo.`, false);
+      } catch (e) {
+        showStatus(e instanceof Error ? e.message : String(e), true);
+      }
+    }),
   editNodes: () =>
     guard(() => {
       const ids = editor.getSelection();
-      if (ids.length !== 1 || !canvas.editNodes(ids[0]!)) showStatus("Select one path to edit its nodes (convert shapes first with Edit > Convert to Path).", true);
+      if (ids.length !== 1 || !canvas.editNodes(ids[0]!)) showStatus("Select one path to edit its nodes (convert shapes first with Path > Convert to Path).", true);
     }),
   zoomIn: () => viewport.zoomIn(),
   zoomOut: () => viewport.zoomOut(),

@@ -1,7 +1,10 @@
 import { CommandFailure, fail } from "./errors.js";
+import { booleanPaths, countNodes, simplifyPathData, type BooleanOperation } from "./boolean.js";
 import {
   applyToPoint,
   formatNumber,
+  invert,
+  multiply,
   parseTransform,
   parseTransformList,
 } from "./geometry.js";
@@ -541,6 +544,75 @@ function convertToPath(ctx: CommandContext, cmd: Record<string, unknown>): Comma
   return { id: pid, d: r.d };
 }
 
+/** Path data and the attributes it replaces, for a <path> or a basic shape. */
+function outlineOf(node: SvgNode, op: string): { d: string; used: string[] } {
+  if (node.tag === "path") {
+    if (!node.attrs.d?.trim()) fail("NOT_CONVERTIBLE", `${op}: path "${node.id}" has no "d".`, "Give it path data first.");
+    parsePath(node.attrs.d); // throws INVALID_PATH with details
+    return { d: node.attrs.d, used: ["d"] };
+  }
+  const r = shapeToPath(node.tag, node.attrs);
+  if ("error" in r) fail("NOT_CONVERTIBLE", `${op}: "${node.id}" cannot be used: ${r.error}.`, "Use paths or basic shapes (rect, circle, ellipse, line, polyline, polygon); ungroup groups first.");
+  return r;
+}
+
+const BOOLEAN_OPS = new Set(["union", "subtract", "intersect", "exclude"]);
+
+function booleanOp(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["boolean"] {
+  if (!BOOLEAN_OPS.has(cmd.operation as string)) {
+    fail("INVALID_COMMAND", `boolean: "operation" must be union, subtract, intersect or exclude, got ${JSON.stringify(cmd.operation)}.`, 'Example: { op: "boolean", operation: "union", ids: ["n_2", "n_3"] }.');
+  }
+  const operation = cmd.operation as BooleanOperation;
+  const ids = requireIdList(cmd.ids, "ids", "boolean");
+  if (ids.length < 2) fail("INVALID_COMMAND", "boolean: needs at least two shapes.", "Select two or more shapes.");
+  const nodes = ids.map((id) => {
+    const n = getElement(ctx, id, "boolean");
+    notRoot(ctx, id, "boolean");
+    return n;
+  });
+  const parentId = nodes[0]!.parent!;
+  const stray = nodes.find((n) => n.parent !== parentId);
+  if (stray) fail("DIFFERENT_PARENTS", `boolean: "${stray.id}" has a different parent than "${nodes[0]!.id}".`, "Combine siblings only; move the shapes into one group first.");
+  const ordered = [...nodes].sort((a, b) => indexOf(ctx, a.id) - indexOf(ctx, b.id));
+  const base = ordered[0]!;
+  const outlines = ordered.map((n) => outlineOf(n, "boolean"));
+  // Everything in the bottom shape's own coordinates, so it keeps its transform.
+  const own = (n: SvgNode) => {
+    const m = parseTransform(n.attrs.transform);
+    if (!m) fail("INVALID_TRANSFORM", `boolean: the transform of "${n.id}" could not be parsed.`, "Fix or remove it first.");
+    return m;
+  };
+  const baseInv = invert(own(base));
+  if (!baseInv) fail("INVALID_TRANSFORM", `boolean: the transform of "${base.id}" collapses it to nothing.`, "Fix its transform first.");
+  const d = booleanPaths(ordered.map((n, i) => ({ d: outlines[i]!.d, matrix: multiply(baseInv, own(n)) })), operation);
+  if (!d) {
+    fail("EMPTY_RESULT", `boolean: ${operation} of these shapes is empty (they do not overlap the way it needs).`, operation === "intersect" ? "Intersect keeps only the area all shapes share; move them so they overlap." : "Check which shape is at the bottom: subtract keeps the bottom one minus the others.");
+  }
+  const attrs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(base.attrs)) if (!outlines[0]!.used.includes(k)) attrs[k] = v;
+  attrs.d = d;
+  const pid = ctx.newId();
+  ctx.apply({ kind: "insert", parent: parentId, index: indexOf(ctx, base.id), nodes: [{ id: pid, tag: "path", attrs, children: [], parent: parentId }] });
+  [...base.children].forEach((c, i) => moveNode(ctx, c, pid, i));
+  for (const n of ordered) removeNode(ctx, n.id);
+  return { id: pid, d };
+}
+
+function simplify(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["simplify"] {
+  const id = requireString(cmd.id, "id", "simplify");
+  const node = getElement(ctx, id, "simplify");
+  if (node.tag !== "path") fail("NOT_A_PATH", `simplify: "${id}" is a <${node.tag}>, not a <path>.`, "Convert it first with convertToPath.");
+  const tolerance = cmd.tolerance ?? 1;
+  if (typeof tolerance !== "number" || !(tolerance > 0) || !Number.isFinite(tolerance)) {
+    fail("INVALID_COMMAND", `simplify: "tolerance" must be a positive number, got ${JSON.stringify(cmd.tolerance)}.`, "It is the largest allowed deviation in the path's units, e.g. 1.");
+  }
+  const before = outlineOf(node, "simplify").d;
+  const d = simplifyPathData(before, tolerance);
+  if (!d) fail("EMPTY_RESULT", `simplify: path "${id}" has no outline to simplify.`, "Nothing to do.");
+  setAttrs(ctx, node, { ...node.attrs, d });
+  return { id, d, nodes: { before: countNodes(before), after: countNodes(d) } };
+}
+
 const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown>) => unknown> = {
   add,
   set,
@@ -554,6 +626,8 @@ const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown
   replace,
   pathEdit,
   convertToPath,
+  boolean: booleanOp,
+  simplify,
 };
 
 /** Runs one command. Throws CommandFailure; the caller rolls back partial changes. */

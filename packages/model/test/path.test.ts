@@ -102,3 +102,73 @@ describe("convertToPath", () => {
     expect(expectNoChange(doc, { op: "convertToPath", id: doc.root }).code).toBe("ROOT_NOT_ALLOWED");
   });
 });
+
+describe("boolean", () => {
+  const square = (x: number, y: number, extra: Record<string, string> = {}) => add("rect", { x: String(x), y: String(y), width: "10", height: "10", ...extra });
+
+  it.each([
+    ["union", "M0 0 L10 0 L10 5 L15 5 L15 15 L5 15 L5 10 L0 10 Z"],
+    ["subtract", "M0 0 L10 0 L10 5 L5 5 L5 10 L0 10 Z"],
+    ["intersect", "M10 10 L5 10 L5 5 L10 5 Z"],
+    ["exclude", "M0 0 L10 0 L10 5 L5 5 L5 10 L0 10 Z M10 10 L5 10 L5 15 L15 15 L15 5 L10 5 Z"],
+  ] as const)("%s of two overlapping squares, one undo step", (operation, d) => {
+    const a = square(0, 0, { fill: "red", id: "a" });
+    const b = square(5, 5, { fill: "blue" });
+    const r = expectRoundTrip(doc, { op: "boolean", operation, ids: [b, a] }); // order of ids does not matter
+    expect(r.d).toBe(d);
+    // The bottom shape's style and place; operands gone.
+    expect(doc.getNode(r.id)).toMatchObject({ tag: "path", attrs: { fill: "red", id: "a", d } });
+    expect(doc.getNode(doc.root)!.children).toEqual([r.id]);
+    expect(doc.getNode(a)).toBeUndefined();
+    expect(doc.getNode(b)).toBeUndefined();
+  });
+
+  it("works across transforms, in the bottom shape's own coordinates", () => {
+    const a = square(0, 0, { transform: "translate(100 0)" });
+    const b = square(0, 0, { transform: "translate(105 5)" });
+    const r = ok(doc.execute({ op: "boolean", operation: "intersect", ids: [a, b] }));
+    expect(doc.getNode(r.id)!.attrs).toMatchObject({ transform: "translate(100 0)", d: "M10 10 L5 10 L5 5 L10 5 Z" });
+  });
+
+  it("combines curves (circles) and keeps other shapes out", () => {
+    const c1 = add("circle", { cx: "0", cy: "0", r: "10" });
+    const c2 = add("circle", { cx: "10", cy: "0", r: "10" });
+    const other = add("rect", { width: "1", height: "1" });
+    const r = ok(doc.execute({ op: "boolean", operation: "union", ids: [c1, c2] }));
+    expect(r.d).toMatch(/^M.* C.* Z$/);
+    expect(doc.getNode(doc.root)!.children).toEqual([r.id, other]);
+  });
+
+  it("refuses what it cannot do, with nothing changed", () => {
+    const a = square(0, 0);
+    const far = square(50, 50);
+    const g = add("g");
+    const inner = square(0, 0);
+    const t = add("text");
+    ok(doc.execute({ op: "move", id: inner, parent: g, index: 0 }));
+    expect(expectNoChange(doc, { op: "boolean", operation: "intersect", ids: [a, far] }).code).toBe("EMPTY_RESULT");
+    expect(expectNoChange(doc, { op: "boolean", operation: "union", ids: [a] }).code).toBe("INVALID_COMMAND");
+    expect(expectNoChange(doc, { op: "boolean", operation: "melt", ids: [a, far] }).code).toBe("INVALID_COMMAND");
+    expect(expectNoChange(doc, { op: "boolean", operation: "union", ids: [a, inner] }).code).toBe("DIFFERENT_PARENTS");
+    expect(expectNoChange(doc, { op: "boolean", operation: "union", ids: [a, t] }).code).toBe("NOT_CONVERTIBLE");
+    expect(expectNoChange(doc, { op: "boolean", operation: "union", ids: [a, g] }).code).toBe("NOT_CONVERTIBLE");
+  });
+});
+
+describe("simplify", () => {
+  it("reduces points of a dense path, as one undo step", () => {
+    const pts = Array.from({ length: 101 }, (_, i) => `${i} ${Math.round(Math.sin(i / 10) * 1000) / 100}`);
+    const p = add("path", { d: `M${pts.join(" L")}`, fill: "none" });
+    const r = expectRoundTrip(doc, { op: "simplify", id: p, tolerance: 0.5 });
+    expect(r.nodes.before).toBe(101);
+    expect(r.nodes.after).toBeLessThan(15);
+    expect(r.d).toMatch(/^M0 0 C/);
+  });
+
+  it("validates", () => {
+    const r = add("rect", { width: "1", height: "1" });
+    const p = add("path", { d: "M0 0 L10 10" });
+    expect(expectNoChange(doc, { op: "simplify", id: r }).code).toBe("NOT_A_PATH");
+    expect(expectNoChange(doc, { op: "simplify", id: p, tolerance: 0 }).code).toBe("INVALID_COMMAND");
+  });
+});

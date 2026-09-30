@@ -221,3 +221,20 @@ describe("path tools", () => {
     expect(editor.text).toBe(SRC);
   });
 });
+
+describe("combine and simplify tools", () => {
+  it("makes a crescent from two circles; errors are explained; undoable", async () => {
+    const [a, b] = (await ok("add_elements", { elements: [{ tag: "circle", attributes: { cx: 100, cy: 50, r: 30, fill: "gold" } }, { tag: "circle", attributes: { cx: 115, cy: 42, r: 26 } }] })).ids as string[];
+    const r = await ok("combine_shapes", { operation: "subtract", ids: [b, a] });
+    const node = editor.doc.getNode(r.id as string);
+    expect(node).toMatchObject({ tag: "path", attrs: { fill: "gold" } });
+    expect(editor.doc.query({ tag: "circle" })).toEqual([]);
+    const s = await ok("simplify_path", { id: r.id, tolerance: 2 });
+    expect(s.nodes).toMatchObject({ before: expect.any(Number), after: expect.any(Number) });
+    const [c] = (await ok("add_elements", { elements: [{ tag: "circle", attributes: { cx: 0, cy: 0, r: 1 } }] })).ids as string[];
+    expect((await err("combine_shapes", { operation: "intersect", ids: [r.id, c] })).code).toBe("EMPTY_RESULT");
+    session.commit();
+    editor.undo();
+    expect(editor.text).toBe(SRC);
+  });
+});

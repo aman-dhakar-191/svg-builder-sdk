@@ -10,6 +10,7 @@ packages/
   parser/   SVG <-> model with source ranges, minimal patches, ID reconcile (step 2)
   sdk/      public API: commands, queries, undo, selection, text          (step 6)
   ai-tools/ AI tool schemas, system prompt, dispatcher onto the SDK       (Phase 2)
+            (ai-tools/definitions: schemas and prompt only, no SDK)
 apps/
   desktop/  Electron app: code pane + live canvas                          (step 3)
 ```

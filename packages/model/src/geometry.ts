@@ -16,6 +16,13 @@ export function multiply(m: Matrix, n: Matrix): Matrix {
   ];
 }
 
+/** Inverse of an affine matrix, or null if it collapses space (determinant 0). */
+export function invert(m: Matrix): Matrix | null {
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (Math.abs(det) < 1e-12) return null;
+  return [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
+}
+
 export function applyToPoint(m: Matrix, [x, y]: Vec2): Vec2 {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 }

@@ -6,6 +6,8 @@ const alias = {
   "@svg-editor/model": resolve(__dirname, "../../packages/model/src/index.ts"),
   "@svg-editor/parser": resolve(__dirname, "../../packages/parser/src/index.ts"),
   "@svg-editor/sdk": resolve(__dirname, "../../packages/sdk/src/index.ts"),
+  // More specific first: aliases match by prefix.
+  "@svg-editor/ai-tools/definitions": resolve(__dirname, "../../packages/ai-tools/src/definitions.ts"),
   "@svg-editor/ai-tools": resolve(__dirname, "../../packages/ai-tools/src/index.ts"),
 };
 

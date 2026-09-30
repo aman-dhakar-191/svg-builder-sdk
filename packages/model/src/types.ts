@@ -58,7 +58,15 @@ export type Command =
    */
   | { op: "pathEdit"; id: NodeId; moves: { seg: number; point: "p" | "c1" | "c2" | "c"; to: Vec2 }[]; handles?: boolean }
   /** Replace a basic shape (rect, circle, ellipse, line, polyline, polygon) by an equivalent <path>. */
-  | { op: "convertToPath"; id: NodeId };
+  | { op: "convertToPath"; id: NodeId }
+  /**
+   * Combine sibling shapes into one <path>. Operands are taken bottom to top (document order);
+   * "subtract" removes all the others from the bottom one. The result takes the bottom shape's
+   * attributes (style, transform) and place; the operands are removed.
+   */
+  | { op: "boolean"; operation: "union" | "subtract" | "intersect" | "exclude"; ids: NodeId[] }
+  /** Fewer points, same look: refits a <path>'s outline within `tolerance` (path units, default 1). */
+  | { op: "simplify"; id: NodeId; tolerance?: number };
 
 export type CommandOp = Command["op"];
 
@@ -82,6 +90,7 @@ export type ErrorCode =
   | "INVALID_PATH"
   | "NOT_A_PATH"
   | "NOT_CONVERTIBLE"
+  | "EMPTY_RESULT"
   | "BATCH_FAILED";
 
 export interface CommandError {
@@ -108,6 +117,9 @@ export interface CommandResultMap {
   pathEdit: { id: NodeId; d: string };
   /** The new <path> (a new node: the shape's ID is not reused). */
   convertToPath: { id: NodeId; d: string };
+  /** The new <path>. */
+  boolean: { id: NodeId; d: string };
+  simplify: { id: NodeId; d: string; nodes: { before: number; after: number } };
 }
 
 export type CommandResult<T = unknown> =

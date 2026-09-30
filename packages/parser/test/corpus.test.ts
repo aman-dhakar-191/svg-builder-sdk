@@ -69,7 +69,7 @@ describe.each(files)("corpus: %s", (file) => {
       const randomCommand = (): Command | undefined => {
         const id = pick(elements());
         const any = pick(s.doc.query());
-        switch (Math.floor(rand() * 11)) {
+        switch (Math.floor(rand() * 13)) {
           case 0: {
             if (!id) return undefined;
             const attrs = s.doc.getNode(id)!.attrs;
@@ -106,6 +106,17 @@ describe.each(files)("corpus: %s", (file) => {
           case 9: {
             const p = pick(s.doc.query({ tag: "path" }));
             return p ? { op: "pathEdit", id: p, moves: [{ seg: Math.floor(rand() * 3), point: "p", to: [Math.round(rand() * 50), Math.round(rand() * 50)] }] } : undefined;
+          }
+          case 10: {
+            if (!id) return undefined;
+            const sibs = s.doc.getNode(s.doc.getNode(id)!.parent!)!.children.filter((c) => c !== id && s.doc.getNode(c)!.tag !== TEXT_TAG);
+            const other = pick(sibs);
+            const ops = ["union", "subtract", "intersect", "exclude"] as const;
+            return other ? { op: "boolean", operation: ops[Math.floor(rand() * 4)]!, ids: [id, other] } : undefined;
+          }
+          case 11: {
+            const p = pick(s.doc.query({ tag: "path" }));
+            return p ? { op: "simplify", id: p, tolerance: 0.5 + rand() * 3 } : undefined;
           }
           default: {
             const a = randomCommand();

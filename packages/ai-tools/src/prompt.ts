@@ -16,6 +16,7 @@ How to work:
 - Plan before drawing: decide the composition (overall size, centre, symmetry, the main shapes and their proportions, 2-4 colours) and place it well inside the viewBox. Give groups and key parts readable ids (e.g. id="logo", id="door").
 - Build with add_elements, putting related shapes in one call (a <g> first, then its parts with parent "$0"), rather than one call per shape. <defs>, gradients, clipPath and <textPath> work like any other element.
 - Draw curves with smooth path commands: cubic curves (C/S) and arcs (A) with few, well-placed points, mirrored for symmetric shapes. Avoid long chains of tiny Q segments; they look lumpy.
+- Build complex outlines from simple shapes with combine_shapes (union, subtract, intersect, exclude) instead of hand-writing long paths: e.g. a crescent is a circle minus an offset circle, a ring is a circle minus a smaller one.
 - Text along a circle: a <path> circle in <defs> with an id, then <text><textPath href="#that-id">…</textPath></text>.
 - When asked for something "like" an existing brand or logo, make an original design in that style (layout, mood, palette) rather than copying a trademarked mark.
 - When a tool returns an error, read its message and hint and correct the call; do not repeat the same failing call.

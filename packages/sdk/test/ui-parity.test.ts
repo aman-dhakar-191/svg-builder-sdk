@@ -155,7 +155,24 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
       expect(ed.doc.getPath(p)[1]).toEqual({ cmd: "L", p: [30, 10] });
       expect(ed.doc.pathEdit(p, [{ seg: 1, point: "p", to: [40, 5] }])).toBe("M10 10 L40 5 L30 30 L10 30 Z");
     },
-  }
+  },
+  {
+    ui: "Path > Union / Subtract / Intersect / Exclude",
+    sdk: "doc.boolean(operation, ids)",
+    run: (ed) => {
+      const p = ed.doc.boolean("union", [byAttr(ed, "a"), byAttr(ed, "b")]);
+      expect(ed.doc.getNode(p).tag).toBe("path");
+      expect(ed.doc.query({ tag: "circle" })).toHaveLength(0);
+    },
+  },
+  {
+    ui: "Path > Simplify",
+    sdk: "doc.simplify(id, { tolerance })",
+    run: (ed) => {
+      const p = ed.doc.add("path", { d: `M${Array.from({ length: 50 }, (_, i) => `${i} ${i % 2}`).join(" L")}` });
+      expect(ed.doc.simplify(p, { tolerance: 2 }).nodes.after).toBeLessThan(50);
+    },
+  },
 ];
 
 /** UI features that change only the view, not the document. Nothing to expose in the SDK. */
@@ -184,6 +201,11 @@ const MAPPED: Record<string, string> = {
   simulateAiTurn: "AI turn / Debug > Simulate AI turn (editor locked)",
   convertToPath: "Convert to Path",
   editNodes: "Drag path nodes and handles (node editing)",
+  union: "Path > Union / Subtract / Intersect / Exclude",
+  subtract: "Path > Union / Subtract / Intersect / Exclude",
+  intersect: "Path > Union / Subtract / Intersect / Exclude",
+  exclude: "Path > Union / Subtract / Intersect / Exclude",
+  simplify: "Path > Simplify",
 };
 
 describe("UI cannot bypass the SDK", () => {
@@ -198,10 +220,11 @@ describe("UI cannot bypass the SDK", () => {
 
   it("main and preload do not touch documents", () => {
     for (const f of ["main/index.ts", "preload/index.ts"]) expect(read(f)).not.toMatch(/@svg-editor\//);
-    // The AI half in main only needs the tool definitions and prompt; tools run in the renderer through the SDK.
+    // The AI half in main only needs the tool definitions and prompt (no SDK, no document model:
+    // that would also bundle paper.js into the main process); tools run in the renderer through the SDK.
     for (const f of readdirSync(new URL("main/ai/", app))) {
       const imports = [...read(`main/ai/${f}`).matchAll(/from\s+"(@svg-editor\/[^"]+)"/g)].map((m) => m[1]);
-      expect(imports.every((i) => i === "@svg-editor/ai-tools"), `main/ai/${f} imports ${imports.join(", ")}`).toBe(true);
+      expect(imports.every((i) => i === "@svg-editor/ai-tools/definitions"), `main/ai/${f} imports ${imports.join(", ")}`).toBe(true);
       expect(read(`main/ai/${f}`)).not.toMatch(/\bdispatch\b/);
     }
   });

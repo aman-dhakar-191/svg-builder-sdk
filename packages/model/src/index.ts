@@ -26,6 +26,7 @@ export {
   applyToPoint,
   formatNumber,
   IDENTITY,
+  invert,
   multiply,
   parseTransform,
   transformBBox,

@@ -306,3 +306,41 @@ test("Convert to Path explains what it cannot do", async () => {
   await expect(page.locator("#status")).toContainText("cannot be converted");
   await expect(page.locator("#canvas svg > text")).toHaveCount(1);
 });
+
+test("Path > Union and Subtract: one path, bottom shape's style, one undo step; Simplify reports points", async () => {
+  const original = await code();
+  await rect().click();
+  await circle().click({ modifiers: ["Shift"] });
+  await menu("union");
+  const path = page.locator("#canvas svg > path");
+  await expect(path).toHaveCount(1);
+  await expect(page.locator("#canvas svg > rect, #canvas svg > circle")).toHaveCount(0);
+  await expect(path).toHaveAttribute("fill", "#4f46e5"); // the rect is at the bottom
+  await expect(page.locator("#status")).toContainText("Union of 2 shapes");
+  expect(await fallbacks()).toBe(0);
+  await page.locator("#canvas").focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(original);
+
+  // Rect and circle overlap? They don't in the sample: subtract keeps the rect, intersect is empty.
+  await rect().click();
+  await circle().click({ modifiers: ["Shift"] });
+  await menu("intersect");
+  await expect(page.locator("#status")).toContainText("is empty");
+  expect(await code()).toBe(original);
+
+  await menu("subtract");
+  await expect(page.locator("#canvas svg > path")).toHaveCount(1);
+  await expect(page.locator("#canvas svg > circle")).toHaveCount(0);
+  await menu("simplify");
+  await expect(page.locator("#status")).toContainText(/Simplified: \d+ → \d+ points/);
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(original);
+});
+
+test("Path > Union needs two shapes", async () => {
+  await rect().click();
+  await menu("union");
+  await expect(page.locator("#status")).toContainText("Select two or more shapes");
+});
