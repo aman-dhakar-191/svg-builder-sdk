@@ -213,6 +213,8 @@ editor.toSvg({ pretty: true });
 
 **Step 2: AI side chat**
 - Chat panel in the renderer; model calls in the **main process** over IPC so the API key stays out of the renderer. [Likely] safer default.
+- **Configurable AI provider** (settings screen): API format (`anthropic` or `openai-compatible`), base URL/endpoint, API key, model name. A small adapter per format in the main process translates tool calls both ways, so the SDK tool layer stays provider-agnostic. API key stored with Electron `safeStorage` (OS keychain), never sent to the renderer; the renderer only sees "key set / not set". Include a "Test connection" button that makes one tiny tool-call request and reports a specific error (bad key, unknown model, endpoint unreachable, model does not support tools).
+- Capability check per model: tool calling is required; image input is required only for the Step 3 vision loop (disable `render_snapshot` when the configured model has no image input).
 - Tool schemas generated from the SDK (small, high-level toolset: `add`, `set`, `delete`, `group`, `move`, `transform`, `query`, `get_tree`, plus helpers like `align`/`distribute`).
 - Tool dispatcher: validate input, call SDK, return structured result/error.
 - Whole turn in one batch; lock while running.
@@ -272,7 +274,7 @@ editor.toSvg({ pretty: true });
 - Supported SVG subset for v1 (see risk 7).
 - Headless `getBBox` strategy (section 7).
 - On AI Stop/error: roll back vs keep partial (default: roll back).
-- Which model/provider for the AI chat, and how the user supplies an API key.
+- ~~Which model/provider for the AI chat, and how the user supplies an API key.~~ Decided: user-configurable API format + endpoint + API key + model (Phase 2, Step 2).
 
 ## 14. Suggested first prompt for Claude Code
 
