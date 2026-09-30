@@ -78,8 +78,10 @@ export interface ExportPngOptions {
   scale?: number;
   /** Root user units (viewBox coordinates). */
   region?: BBox;
-  /** Longest side in pixels. */
+  /** Longest side in pixels (shrinks only). */
   maxSize?: number;
+  /** Scales up or down so the longer side is exactly this many pixels (overrides scale and maxSize). */
+  longSide?: number;
   /** CSS colour under the drawing; default transparent. */
   background?: string;
 }
@@ -449,6 +451,7 @@ export class Editor {
    * - `region`: only this rectangle, in root user units (viewBox coordinates). It may reach
    *   outside the page; content there is drawn too.
    * - `maxSize`: caps the longer side in pixels, shrinking the image to fit.
+   * - `longSide`: scales the image so its longer side is exactly this many pixels.
    * - `background`: a CSS colour painted under the drawing (default: transparent).
    */
   async exportPng(options: ExportPngOptions = {}): Promise<Uint8Array> {
@@ -484,7 +487,11 @@ export class Editor {
     let width = r ? r.width * (size.width / page.width) * scale : size.width * scale;
     let height = r ? r.height * (size.height / page.height) * scale : size.height * scale;
     const max = options.maxSize;
-    if (max !== undefined && max > 0 && Math.max(width, height) > max) {
+    if (options.longSide !== undefined && options.longSide > 0) {
+      const k = options.longSide / Math.max(width, height);
+      width *= k;
+      height *= k;
+    } else if (max !== undefined && max > 0 && Math.max(width, height) > max) {
       const k = max / Math.max(width, height);
       width *= k;
       height *= k;

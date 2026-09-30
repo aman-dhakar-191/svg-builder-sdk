@@ -1,6 +1,6 @@
 import { SYSTEM_PROMPT, toolsFor } from "@svg-editor/ai-tools";
 import type { AiSettings } from "../../shared/ai.js";
-import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
+import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, paragraph, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
 
 /**
  * OpenAI-compatible Chat Completions (OpenAI, OpenRouter, Ollama, LM Studio,
@@ -88,8 +88,9 @@ export const openaiProvider: Provider = {
         return { status: "refused", text, message: msg.refusal ? `The model declined: ${msg.refusal}` : "The model declined this request." };
       }
       if (msg.content) {
-        text += msg.content;
-        a.onText(msg.content);
+        const d = paragraph(text, msg.content);
+        text += d;
+        a.onText(d);
       }
       const calls = msg.tool_calls ?? [];
       if (choice.finish_reason === "length") {
