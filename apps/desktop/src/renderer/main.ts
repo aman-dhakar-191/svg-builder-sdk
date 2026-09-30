@@ -2,9 +2,9 @@ import { defaultKeymap } from "@codemirror/commands";
 import { xml } from "@codemirror/lang-xml";
 import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
-import { Annotation, EditorState, type Extension } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
-import { createEditor, EMPTY_SVG, SvgEditorError, type Editor, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
+import { createEditor, EMPTY_SVG, SvgEditorError, type AbortSignalLike, type Editor, type LockInfo, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
 import type { DesktopApi, MenuAction } from "../shared/api.js";
 import { CanvasController, type Tool } from "./canvas.js";
 import { selectionHighlight, setHighlights } from "./highlight.js";
@@ -33,6 +33,9 @@ const fromModel = Annotation.define<boolean>();
 const status = document.getElementById("status")!;
 const zoomLabel = document.getElementById("zoom")!;
 const toolbar = document.querySelector(".toolbar")!;
+const lockBanner = document.getElementById("lock-banner")!;
+/** Makes the code pane read-only while the document is locked. */
+const editable = new Compartment();
 
 /** Draws SVG text to PNG bytes in the browser: the SDK's rasterizer bridge. */
 const rasterize: Rasterizer = async (svg, size) => {
@@ -89,6 +92,12 @@ function flush(): void {
     editor.setText(text);
     view.dispatch(setDiagnostics(view.state, []));
   } catch (e) {
+    if (e instanceof SvgEditorError && e.code === "LOCKED") {
+      // Typed just as a lock started: the document belongs to the lock holder now.
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: editor.text }, annotations: fromModel.of(true) });
+      showStatus("Your last code edit was not applied: the document is locked.", true);
+      return;
+    }
     if (!(e instanceof SvgEditorError) || !e.parse) throw e;
     // Keep the last good model and render; mark the error in the code pane.
     const from = Math.min(e.parse.offset, text.length);
@@ -130,10 +139,27 @@ function onSelectionChange(ids: NodeId[]): void {
   showSelectionStatus(ids);
 }
 
+/**
+ * Lock on: banner with Stop, canvas and panels inert, code pane read-only,
+ * drawing tools off. The SDK enforces the lock; this only reflects it.
+ */
+function applyLock(info: LockInfo | null): void {
+  const locked = info !== null;
+  lockBanner.hidden = !locked;
+  document.getElementById("lock-label")!.textContent = info?.label ?? "";
+  document.body.classList.toggle("locked", locked);
+  document.querySelector<HTMLElement>(".stage")!.inert = locked;
+  document.querySelector<HTMLElement>(".sidebar")!.inert = locked;
+  for (const b of toolbar.querySelectorAll<HTMLButtonElement>("[data-tool]")) b.disabled = locked;
+  if (locked) canvas.interrupt();
+  view.dispatch({ effects: editable.reconfigure(locked ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
+}
+
 /** Wires a (new) editor into every view. */
 function attach(ed: Editor): void {
   ed.onChange(onDocumentChange);
   ed.onSelectionChange(onSelectionChange);
+  ed.onLockChange(applyLock);
   ed.setBridges({ measure: (id) => canvas.measure(id) });
 }
 
@@ -170,17 +196,68 @@ function updateDirty(): void {
 // ------------------------------------------------------------------ history
 
 function undo(): boolean {
-  flush();
-  canvas.cancelGesture();
-  editor.undo();
-  return true;
+  return guard(() => {
+    flush();
+    canvas.cancelGesture();
+    editor.undo();
+  });
 }
 
 function redo(): boolean {
-  flush();
-  canvas.cancelGesture();
-  editor.redo();
+  return guard(() => {
+    flush();
+    canvas.cancelGesture();
+    editor.redo();
+  });
+}
+
+/** Runs a document action; while locked, explains instead of failing silently. */
+function guard(fn: () => void): true {
+  if (editor.lockInfo) {
+    showStatus(`${editor.lockInfo.label} Stop it first.`, true);
+    return true;
+  }
+  fn();
   return true;
+}
+
+// -------------------------------------------------------------- lock demo
+
+function sleep(ms: number, signal: AbortSignalLike): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(signal.reason);
+    }, { once: true });
+  });
+}
+
+/**
+ * Debug menu: a fake AI turn (timed edits under a lock) to try the lock,
+ * Stop and single-step undo without any AI.
+ */
+async function simulateAiTurn(): Promise<void> {
+  if (editor.lockInfo) return;
+  flush();
+  const ed = editor;
+  const vb = (ed.doc.getNode(ed.doc.root).attrs.viewBox ?? "").split(/[\s,]+/).map(Number);
+  const [x0, y0, w, h] = vb.length === 4 && vb.every(Number.isFinite) ? vb : [0, 0, ed.intrinsicSize().width, ed.intrinsicSize().height];
+  const colors = ["#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6"];
+  try {
+    await ed.runLocked({ reason: "simulation", label: "Simulated AI turn is drawing…", timeoutMs: 60_000 }, async (s) => {
+      for (let i = 0; i < colors.length; i++) {
+        await sleep(600, s.signal);
+        s.doc.add("circle", { cx: x0! + (w! * (i + 1)) / 6, cy: y0! + h! / 2, r: Math.min(w!, h!) / 10, fill: colors[i]!, "fill-opacity": 0.85 });
+      }
+      await sleep(600, s.signal);
+      s.doc.addText("Simulated AI turn", { x: x0! + w! / 12, y: y0! + h! * 0.85, "font-family": "sans-serif", "font-size": Math.min(w!, h!) / 12 });
+    });
+    showStatus("Simulated AI turn finished. One Ctrl+Z removes all of it.", false);
+  } catch (e) {
+    if (e instanceof SvgEditorError && e.code === "LOCK_STOPPED") return; // Stop already reported
+    showStatus(e instanceof Error ? e.message : String(e), true);
+  }
 }
 
 // -------------------------------------------------------------------- files
@@ -253,6 +330,7 @@ const extensions: Extension[] = [
   syntaxHighlighting(defaultHighlightStyle),
   lintGutter(),
   selectionHighlight,
+  editable.of([]),
   // No CodeMirror history: the model owns undo for code and canvas alike.
   keymap.of([
     { key: "Mod-z", run: undo, preventDefault: true },
@@ -323,17 +401,27 @@ window.addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
+document.getElementById("lock-stop")!.addEventListener("click", () => {
+  if (editor.stopLock({ keep: false })) showStatus("Stopped. The changes were discarded.", false);
+});
+document.getElementById("lock-keep")!.addEventListener("click", () => {
+  const r = editor.stopLock({ keep: true });
+  if (r) showStatus(r.changed ? "Stopped. The changes so far were kept (one Ctrl+Z removes them)." : "Stopped. Nothing had changed.", false);
+});
+
 const menu: Record<MenuAction, () => void> = {
-  new: () => {
-    if (!confirmDiscard()) return;
-    load(EMPTY_SVG);
-    window.desktop.newDocument();
-  },
-  open: () => void openFile(),
-  save: () => void save(false),
-  saveAs: () => void save(true),
-  saveAndClose: () => void save(false).then((ok) => ok && window.desktop.closeWindow()),
-  exportPng: () => void exportPng(),
+  new: () =>
+    guard(() => {
+      if (!confirmDiscard()) return;
+      load(EMPTY_SVG);
+      window.desktop.newDocument();
+    }),
+  open: () => guard(() => void openFile()),
+  save: () => guard(() => void save(false)),
+  saveAs: () => guard(() => void save(true)),
+  saveAndClose: () => guard(() => void save(false).then((ok) => ok && window.desktop.closeWindow())),
+  exportPng: () => guard(() => void exportPng()),
+  simulateAiTurn: () => void simulateAiTurn(),
   zoomIn: () => viewport.zoomIn(),
   zoomOut: () => viewport.zoomOut(),
   zoom100: () => viewport.setZoom(1),

@@ -87,9 +87,27 @@ All throw `SvgEditorError`; none half-apply. Attribute values may be numbers (wr
 | `intrinsicSize()`, `exportPng({ scale? })` | PNG needs `rasterize` |
 | `setBridges({ rasterize?, measure? })` | plug renderer capabilities in later |
 
+### Locking (one writer at a time, e.g. an AI turn)
+
+```ts
+await editor.runLocked({ reason: "ai", label: "AI is drawing…", timeoutMs: 120_000 }, async (session) => {
+  const reply = await fetch(url, { signal: session.signal as AbortSignal }); // cancelled by Stop
+  session.doc.add("rect", { width: 10, height: 10 });                       // only the session can write
+});
+```
+
+| Member | |
+|---|---|
+| `lock({ reason, label?, timeoutMs? })` | returns a `LockSession`. Until it ends, writes not made through the session throw `LOCKED` (reads and selection still work). The whole session is one undo step. |
+| `runLocked(options, fn)` | commits when `fn` finishes, rolls back when it throws, always unlocks. If stopped meanwhile, rejects with `LOCK_STOPPED`. |
+| `session.doc`, `session.execute`, `session.batch` | the holder's write access; `LOCK_RELEASED` after the session ends |
+| `session.commit()`, `session.rollback()`, `session.stop({ keep? })` | `stop` aborts `session.signal`, then discards (default) or keeps the partial work |
+| `editor.stopLock({ keep? })` | stop whoever holds the lock (the UI's Stop button) |
+| `editor.lockInfo`, `editor.onLockChange(fn)` | for banners |
+
 ### Error codes
 
-`PARSE_ERROR`, `NOT_FOUND`, `INVALID_COMMAND`, `UNKNOWN_OP`, `INVALID_TAG`, `INVALID_ATTR`, `ROOT_NOT_ALLOWED`, `NOT_AN_ELEMENT`, `INDEX_OUT_OF_RANGE`, `CYCLE`, `DIFFERENT_PARENTS`, `NOT_A_GROUP`, `UNGROUP_LOSSY`, `EMPTY_TRANSFORM`, `INVALID_TRANSFORM`, `BBOX_UNAVAILABLE`, `HAS_ELEMENT_CHILDREN`, `BATCH_FAILED` (with `path` to the failing command), `NO_RASTERIZER`, `EXPORT_FAILED`.
+`PARSE_ERROR`, `NOT_FOUND`, `INVALID_COMMAND`, `UNKNOWN_OP`, `INVALID_TAG`, `INVALID_ATTR`, `ROOT_NOT_ALLOWED`, `NOT_AN_ELEMENT`, `INDEX_OUT_OF_RANGE`, `CYCLE`, `DIFFERENT_PARENTS`, `NOT_A_GROUP`, `UNGROUP_LOSSY`, `EMPTY_TRANSFORM`, `INVALID_TRANSFORM`, `BBOX_UNAVAILABLE`, `HAS_ELEMENT_CHILDREN`, `BATCH_FAILED` (with `path` to the failing command), `NO_RASTERIZER`, `EXPORT_FAILED`, `LOCKED`, `LOCK_RELEASED`, `LOCK_STOPPED`.
 
 ## UI parity
 

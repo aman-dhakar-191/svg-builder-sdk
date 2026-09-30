@@ -12,7 +12,8 @@ export type MenuAction =
   | "zoom100"
   | "zoomFit"
   | "toggleGrid"
-  | "toggleSnap";
+  | "toggleSnap"
+  | "simulateAiTurn";
 
 export interface SaveResult {
   saved: boolean;

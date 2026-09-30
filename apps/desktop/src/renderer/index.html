@@ -14,6 +14,13 @@
     <main class="app">
       <section class="pane code-pane" aria-label="SVG code"><div id="code"></div></section>
       <section class="pane canvas-pane" aria-label="Canvas">
+        <div id="lock-banner" role="status" hidden>
+          <span class="lock-spinner" aria-hidden="true"></span>
+          <span id="lock-label"></span>
+          <span class="spacer"></span>
+          <button id="lock-stop" title="Stop and discard the changes made so far">Stop</button>
+          <button id="lock-keep" title="Stop and keep the changes made so far">Stop &amp; keep changes</button>
+        </div>
         <div class="toolbar" role="toolbar" aria-label="Tools">
           <button data-tool="select" title="Select (V)">Select</button>
           <button data-tool="rect" title="Rectangle (R)">Rect</button>

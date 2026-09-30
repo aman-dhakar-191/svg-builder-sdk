@@ -82,3 +82,22 @@
 | Renderer bridges | `rasterize` (PNG export) and `measure` (bounding boxes of paths and text) are injected; the desktop app provides DOM implementations. | Keeps the SDK pure TS. Headless PNG export would need a rasterizer library (e.g. resvg), which needs your approval. |
 | Exit test | The app uses only the SDK for documents; `ui-parity.test.ts` checks the renderer's imports, runs an SDK equivalent for every UI action, and fails if a menu action or tool is added without an SDK mapping or a view-only mark. | View-only: zoom, pan, grid, snapping, tool choice. |
 | Headless example | `examples/bar-chart.ts` builds a chart from data; CI runs it under plain Node against the built packages. | |
+
+## Build and distribution
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Installers | Built only in GitHub Actions (`package` job, one runner per OS) with electron-builder: NSIS `.exe`, `.dmg` for arm64 and x64, `.AppImage`. Each packaged app is launched in a smoke test before its installer is uploaded as a workflow artifact. | Your rule: builds and executables come from Actions, not local machines. |
+| Signing | Unsigned. Windows SmartScreen and macOS Gatekeeper warn on first launch. | Add certificates as repository secrets when you want signed builds; a tagged-release workflow can then publish installers to GitHub Releases. |
+| Packaged contents | Only `out/` (bundled by electron-vite) and `package.json`; no `node_modules`. | Main and preload need only Electron and Node built-ins; the renderer is fully bundled. |
+
+## Phase 2, step 1: editor lock
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Enforcement | In the SDK. `editor.lock()` hands out a session with its own `doc`; every other write path (commands, `setText`, undo/redo, `batch`) throws `LOCKED`, and `execute()` returns it as an error. Reads and selection stay open. | Plan section 9: enforce in the SDK, not just the UI. |
+| One turn = one undo step | The session is one outer transaction. Nothing changed means no history entry. | |
+| Stop | Rolls back by default; "Stop & keep changes" commits the partial turn. Stop aborts the session's `AbortSignal` (for cancelling the model request) and unlocks immediately, without waiting for the holder. | Plan: rollback by default, keep partial as an option. |
+| No stuck locks | `runLocked` always ends the session (finally); a finished session cannot write again (`LOCK_RELEASED`); optional `timeoutMs` stops automatically; the UI can always stop (`stopLock`). | "A stuck lock is a worse bug than a bad AI edit." |
+| UI while locked | Banner with Stop / Stop & keep; canvas and panels `inert`; code pane read-only but updating live; drawing tools, undo/redo, New/Open/Save refused with a message. Zoom and scrolling of the code still work. | |
+| Testing without AI | Debug > Simulate AI Turn makes timed edits under `runLocked`; e2e tests cover lock, Stop, Stop & keep, and single-step undo. | Plan: implement and test lock/unlock/Stop independently of any AI. |

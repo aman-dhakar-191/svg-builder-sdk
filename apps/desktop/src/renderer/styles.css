@@ -57,7 +57,15 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 #canvas > svg { margin: auto; flex: none; background: transparent; }
 #grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 #grid .grid-lines { stroke: color-mix(in srgb, var(--text) 14%, transparent); stroke-width: 1; fill: none; shape-rendering: crispEdges; }
-.toolbar .spacer { flex: 1; }
+.toolbar .spacer, #lock-banner .spacer { flex: 1; }
+#lock-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--accent) 16%, var(--bg)); border-bottom: 1px solid var(--accent); }
+#lock-banner[hidden] { display: none; }
+#lock-banner button { font: inherit; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); cursor: pointer; }
+#lock-banner #lock-stop { background: var(--accent); color: #fff; }
+.lock-spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .lock-spinner { animation: none; } }
+body.locked .code-pane { opacity: 0.85; }
 .toolbar output { min-width: 48px; text-align: center; align-self: center; font-variant-numeric: tabular-nums; }
 .sidebar { border-left: 1px solid var(--border); display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); background: var(--panel); min-height: 0; overflow: hidden; }
 .panel { min-height: 0; display: flex; flex-direction: column; }

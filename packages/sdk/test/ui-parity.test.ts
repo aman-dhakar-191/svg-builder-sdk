@@ -121,6 +121,24 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
       expect(await ed.exportPng()).toEqual(new Uint8Array([1]));
     },
   },
+  {
+    ui: "AI turn / Debug > Simulate AI turn (editor locked)",
+    sdk: "editor.runLocked(options, fn) / editor.lock()",
+    run: async (ed) => {
+      await ed.runLocked({ reason: "ai" }, (s) => s.doc.add("circle"));
+      expect(ed.doc.query({ tag: "circle" })).toHaveLength(2);
+    },
+  },
+  {
+    ui: "Lock banner: Stop / Stop & keep changes",
+    sdk: "editor.stopLock({ keep })",
+    run: (ed) => {
+      const s = ed.lock({ reason: "ai" });
+      s.doc.add("ellipse");
+      expect(ed.stopLock({ keep: false })).toMatchObject({ kept: false, stopped: true });
+      expect(ed.text).toBe(SRC);
+    },
+  },
 ];
 
 /** UI features that change only the view, not the document. Nothing to expose in the SDK. */
@@ -146,6 +164,7 @@ const MAPPED: Record<string, string> = {
   ellipse: "Rect / ellipse / line tools",
   line: "Rect / ellipse / line tools",
   text: "Text tool",
+  simulateAiTurn: "AI turn / Debug > Simulate AI turn (editor locked)",
 };
 
 describe("UI cannot bypass the SDK", () => {
