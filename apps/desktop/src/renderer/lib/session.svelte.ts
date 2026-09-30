@@ -10,6 +10,7 @@ import type { DesktopApi, MenuAction, SvgExportStyle } from "../../shared/api.js
 import { CanvasController, type Tool } from "../canvas.js";
 import { selectionHighlight, setHighlights } from "../highlight.js";
 import { SAMPLE } from "../sample.js";
+import { numberAt, scrubbed, type ScrubNumber } from "../scrub.js";
 import { Viewport } from "../viewport.js";
 import { reducedMotion } from "./motion.js";
 
@@ -91,6 +92,8 @@ export class Session {
   zoom = $state(1);
   grid = $state(false);
   snap = $state(false);
+  /** Snap moved shapes to other shapes' edges and centres (guides). */
+  snapShapes = $state(true);
   nodeEditing = $state(false);
   /** The selected point while editing a path's points. */
   activeNode: { seg: number; smooth: boolean; isStart: boolean } | null = $state(null);
@@ -140,14 +143,28 @@ export class Session {
         { key: "Mod-y", run: () => this.redo(), preventDefault: true },
         ...defaultKeymap,
       ]),
-      // Pointing at markup outlines its element on the canvas.
+      // Pointing at markup outlines its element on the canvas; Alt+drag on a number scrubs it.
       EditorView.domEventHandlers({
         mousemove: (e, view) => {
           const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }, false);
           const id = pos === null || view.state.doc.toString() !== this.editor.text ? undefined : this.editor.nodeAt(pos);
           this.canvas?.setHover(id === undefined || id === this.editor.doc.root ? null : id);
+          const scrubbable = e.altKey && !this.lock && pos !== null && numberAt(view.state.doc.toString(), pos) !== null;
+          view.contentDOM.style.cursor = scrubbable ? "ew-resize" : "";
         },
-        mouseleave: () => this.canvas?.setHover(null),
+        mouseleave: (_e, view) => {
+          this.canvas?.setHover(null);
+          view.contentDOM.style.cursor = "";
+        },
+        mousedown: (e, view) => {
+          if (!e.altKey || e.button !== 0 || this.lock) return false;
+          const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }, false);
+          const n = pos === null ? null : numberAt(view.state.doc.toString(), pos);
+          if (!n) return false;
+          e.preventDefault();
+          this.scrub(view, n, e.clientX);
+          return true;
+        },
       }),
       EditorView.updateListener.of((u) => {
         if (u.transactions.some((t) => t.annotation(fromModel))) return;
@@ -219,6 +236,50 @@ export class Session {
       this.showStatus(e.message, true);
     }
   };
+
+  /**
+   * Drag-to-scrub a number in the code pane: 2 px per step of the number's own precision
+   * (Shift: x10). The canvas follows live; the whole drag is one undo step; Esc cancels it.
+   */
+  private scrub(view: EditorView, n: ScrubNumber, startX: number): void {
+    this.flush();
+    if (view.state.doc.toString() !== this.editor.text) return this.showStatus("Fix the code error first, then scrub.", true);
+    const batch = this.editor.beginBatch();
+    let to = n.to;
+    let changed = false;
+    const move = (e: MouseEvent) => {
+      const text = scrubbed(n, Math.round((e.clientX - startX) / 2), e.shiftKey);
+      if (text === view.state.doc.sliceString(n.from, to)) return;
+      view.dispatch({ changes: { from: n.from, to, insert: text } });
+      to = n.from + text.length;
+      changed = true;
+      this.flush();
+    };
+    const end = (keep: boolean) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("keydown", key, true);
+      document.body.style.cursor = "";
+      if (keep) batch.commit();
+      else {
+        batch.rollback();
+        // Put the code back to the model's text if the rollback did not already.
+        if (view.state.doc.toString() !== this.editor.text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: this.editor.text }, annotations: fromModel.of(true) });
+      }
+      if (changed) this.showStatus(keep ? `Set to ${view.state.doc.sliceString(n.from, to)}` : "Scrub cancelled.", false);
+    };
+    const up = () => end(true);
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      end(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", key, true);
+    document.body.style.cursor = "ew-resize";
+  }
 
   // ------------------------------------------------------------ model -> views
 
@@ -407,6 +468,11 @@ export class Session {
     }
   }
 
+  toggleSnapShapes(): void {
+    this.snapShapes = !this.snapShapes;
+    if (this.canvas) this.canvas.snapShapes = this.snapShapes;
+  }
+
   /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
   svgText(style: SvgExportStyle): string {
     this.flush();
@@ -578,6 +644,7 @@ export class Session {
     zoomFit: () => this.viewport?.fit(),
     toggleGrid: () => this.viewport?.toggleGrid(),
     toggleSnap: () => this.viewport?.toggleSnap(),
+    toggleSnapShapes: () => this.toggleSnapShapes(),
     undo: () => void this.undo(),
     redo: () => void this.redo(),
     toggleMode: () => this.toggleMode(),

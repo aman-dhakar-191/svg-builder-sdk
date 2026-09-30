@@ -160,3 +160,41 @@ test("pointing at markup in the code pane or at a layer outlines that element on
   await page.locator(".layer-row").first().click(); // once selected, the selection outline takes over
   await expect(page.locator("#overlay .hover-outline")).toHaveCount(0);
 });
+
+test("Alt+drag on a number in the code pane scrubs it: the canvas follows, one undo step, Esc cancels", async () => {
+  const original = await code();
+  // Screen position of the "80" in width="80".
+  const at = await page.evaluate(() => {
+    const { view } = (window as unknown as { editor: { view: import("@codemirror/view").EditorView } }).editor;
+    const c = view.coordsAtPos(view.state.doc.toString().indexOf('width="80"') + 8)!;
+    return { x: c.left, y: (c.top + c.bottom) / 2 };
+  });
+  const rect = page.locator("#canvas svg rect");
+  const scrub = async (dx: number, beforeUp: () => Promise<void>) => {
+    await page.mouse.move(at.x, at.y);
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    for (let i = 1; i <= 4; i++) await page.mouse.move(at.x + (dx * i) / 4, at.y);
+    await beforeUp();
+  };
+
+  // 20 px right = 10 steps of 1: the canvas shows it during the drag.
+  await scrub(20, async () => {
+    await expect(rect).toHaveAttribute("width", "90");
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+  });
+  await expect.poll(code).toBe(original.replace('width="80"', 'width="90"'));
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(original); // the whole drag was one step
+
+  // Esc during the drag puts everything back.
+  await scrub(-10, async () => {
+    await expect(rect).toHaveAttribute("width", "75");
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+  });
+  await expect.poll(code).toBe(original);
+  await expect(rect).toHaveAttribute("width", "80");
+});

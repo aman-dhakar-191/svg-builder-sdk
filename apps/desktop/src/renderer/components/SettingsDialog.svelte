@@ -132,6 +132,7 @@
           <h2>Editor</h2>
           <label class="check"><input type="checkbox" checked={session.grid} onchange={() => session.viewport?.toggleGrid()} /><span>Show grid</span></label>
           <label class="check"><input type="checkbox" checked={session.snap} onchange={() => session.viewport?.toggleSnap()} /><span>Snap to grid</span></label>
+          <label class="check"><input type="checkbox" checked={session.snapShapes} onchange={() => session.toggleSnapShapes()} /><span>Snap to shapes <small>(edges and centres of other shapes and the page, with guide lines; hold Alt while dragging to turn it off)</small></span></label>
           <p class="hint">Hold Shift while dragging to keep straight lines and proportions; hold Alt while dragging a path point to move it without its handles.</p>
         </div>
       {:else}
@@ -144,6 +145,10 @@
               <tr><td>Edit the selected path's points</td><td><span class="kbd">Enter</span></td></tr>
               <tr><td>Pan the canvas</td><td><span class="kbd">Space</span> + drag</td></tr>
               <tr><td>Nudge the selection (×10 with Shift)</td><td><span class="kbd">Arrow keys</span></td></tr>
+              <tr><td>Change a number in the code (×10 with Shift, Esc cancels)</td><td><span class="kbd">Alt</span> + drag</td></tr>
+              <tr><td>Move without snapping to shapes</td><td><span class="kbd">Alt</span> while dragging</td></tr>
+              <tr><td>Add a point / switch corner and smooth (editing points)</td><td>Double-click the outline / a point</td></tr>
+              <tr><td>Remove the selected point (editing points)</td><td><span class="kbd">Delete</span></td></tr>
             </tbody>
           </table>
         </div>
