@@ -17,3 +17,6 @@ Plan: `docs/svg-editor-plan.md`. Decisions made along the way: `docs/decisions.m
 - Run `pnpm test` before declaring a step done.
 - GitHub Actions (`.github/workflows/ci.yml`) is the build of record: install, typecheck, test and build all run there. A step is done when CI is green on the pushed commit.
 - Never commit build output (`dist/`); CI produces it as an artifact.
+
+## Commits
+- Author and commit as the repo owner only. No `Co-Authored-By`, `Claude-Session` or other AI attribution trailers in commit messages.
