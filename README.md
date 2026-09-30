@@ -7,7 +7,7 @@ Desktop SVG editor (Electron + TypeScript) with a code pane, a visual canvas, an
 ```
 packages/
   model/    pure-TS document model: nodes, commands, history, queries   (Phase 1, step 1)
-  parser/   SVG <-> model with source ranges, patch generation           (step 2, not started)
+  parser/   SVG <-> model with source ranges, minimal patches, ID reconcile (step 2)
   sdk/      public API wrapping the model                                (step 6, not started)
 apps/
   desktop/  Electron app                                                 (step 3, not started)
@@ -15,7 +15,7 @@ apps/
 
 ## Building
 
-CI in GitHub Actions is the build of record: every push runs install, typecheck, tests and build on Node 22 and 24, and uploads `packages/*/dist` as the `model-dist` artifact.
+CI in GitHub Actions is the build of record: every push runs install, typecheck, tests and build on Node 22 and 24, and uploads `packages/*/dist` as the `dist` artifact.
 
 Locally (Node >= 22.12, pnpm via corepack):
 

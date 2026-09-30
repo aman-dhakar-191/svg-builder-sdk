@@ -128,6 +128,57 @@ function sameAttrs(a: Record<string, string>, b: Record<string, string>): boolea
   return ka.length === kb.length && ka.every((k, i) => k === kb[i] && a[k] === b[k]);
 }
 
+const isText = (ctx: CommandContext, id: NodeId | undefined): boolean =>
+  id !== undefined && ctx.get(id)?.tag === TEXT_TAG;
+
+/**
+ * Text nodes are never adjacent (output would merge them) and never empty
+ * (they would vanish), and this holds after every single mutation, not just
+ * after each command, because the text patcher checks every step. So text on
+ * both sides of a node is merged *before* the node is taken out.
+ * Returns the merge made, if any.
+ */
+function detach(ctx: CommandContext, id: NodeId): { removed: NodeId; into: NodeId } | null {
+  const siblings = ctx.get(ctx.get(id)!.parent!)!.children;
+  const i = siblings.indexOf(id);
+  const prev = siblings[i - 1];
+  const next = siblings[i + 1];
+  if (!isText(ctx, prev) || !isText(ctx, next)) return null;
+  ctx.apply({ kind: "text", id: prev!, text: ctx.get(prev!)!.text! + ctx.get(next!)!.text! });
+  ctx.apply({ kind: "remove", id: next! });
+  return { removed: next!, into: prev! };
+}
+
+function removeNode(ctx: CommandContext, id: NodeId): void {
+  detach(ctx, id);
+  ctx.apply({ kind: "remove", id });
+}
+
+/** Moves `id` to final position `index` under `parentId`, keeping text normalized. */
+function moveNode(ctx: CommandContext, id: NodeId, parentId: NodeId, index: number): void {
+  const post = ctx.get(parentId)!.children.filter((c) => c !== id);
+  let anchor = index > 0 ? post[index - 1] : undefined;
+  const node = ctx.get(id)!;
+  if (node.tag === TEXT_TAG) {
+    // Text landing next to text joins it instead.
+    const next = post[index];
+    if (isText(ctx, anchor) || isText(ctx, next)) {
+      const target = isText(ctx, anchor) ? anchor! : next!;
+      const t = ctx.get(target)!.text!;
+      ctx.apply({ kind: "text", id: target, text: target === anchor ? t + node.text : node.text + t });
+      removeNode(ctx, id);
+      return;
+    }
+  }
+  const merged = detach(ctx, id);
+  if (merged && anchor === merged.removed) anchor = merged.into;
+  const rest = ctx.get(parentId)!.children.filter((c) => c !== id);
+  const at = anchor === undefined ? 0 : rest.indexOf(anchor) + 1;
+  if (node.parent !== parentId || ctx.get(parentId)!.children.indexOf(id) !== at) {
+    ctx.apply({ kind: "move", id, parent: parentId, index: at });
+  }
+}
+
 function setAttrs(ctx: CommandContext, node: SvgNode, attrs: Record<string, string>): void {
   if (!sameAttrs(node.attrs, attrs)) ctx.apply({ kind: "attrs", id: node.id, attrs });
 }
@@ -181,7 +232,7 @@ function del(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMa
   }
   // Deleting an ancestor already removes its descendants.
   const top = ids.filter((id) => !ids.some((other) => other !== id && isAncestor(ctx, other, id)));
-  for (const id of top) ctx.apply({ kind: "remove", id });
+  for (const id of top) if (ctx.get(id)) removeNode(ctx, id);
   return { ids: top };
 }
 
@@ -198,9 +249,7 @@ function move(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultM
   if (index < 0 || index > max) {
     fail("INDEX_OUT_OF_RANGE", `move: index ${index} is outside 0..${max} for parent "${parent.id}".`, "The index is the node's final position among the parent's children.");
   }
-  if (node.parent !== parent.id || indexOf(ctx, id) !== index) {
-    ctx.apply({ kind: "move", id, parent: parent.id, index });
-  }
+  if (node.parent !== parent.id || indexOf(ctx, id) !== index) moveNode(ctx, id, parent.id, index);
   return { id };
 }
 
@@ -223,7 +272,7 @@ function group(ctx: CommandContext, cmd: Record<string, unknown>): CommandResult
     index: indexOf(ctx, ordered[0]!),
     nodes: [{ id: gid, tag: "g", attrs: {}, children: [], parent: parentId }],
   });
-  ordered.forEach((id, i) => ctx.apply({ kind: "move", id, parent: gid, index: i }));
+  ordered.forEach((id, i) => moveNode(ctx, id, gid, i));
   return { id: gid };
 }
 
@@ -244,9 +293,14 @@ function ungroup(ctx: CommandContext, cmd: Record<string, unknown>): CommandResu
   const children = [...g.children];
   const parentId = g.parent!;
   const start = indexOf(ctx, id);
-  children.forEach((child, i) => ctx.apply({ kind: "move", id: child, parent: parentId, index: start + 1 + i }));
-  ctx.apply({ kind: "remove", id });
+  let at = start + 1;
+  for (const child of children) {
+    moveNode(ctx, child, parentId, at);
+    if (ctx.get(child)?.parent === parentId) at = indexOf(ctx, child) + 1;
+  }
+  removeNode(ctx, id);
   for (const childId of children) {
+    if (!ctx.get(childId)) continue; // merged into a neighbouring text node
     const child = ctx.get(childId)!;
     if (child.tag === TEXT_TAG) continue;
     const next: Record<string, string> = {};
@@ -260,7 +314,7 @@ function ungroup(ctx: CommandContext, cmd: Record<string, unknown>): CommandResu
     }
     setAttrs(ctx, child, next);
   }
-  return { ids: children };
+  return { ids: children.filter((c) => ctx.get(c) !== undefined) };
 }
 
 function transform(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["transform"] {
@@ -334,7 +388,8 @@ function setText(ctx: CommandContext, cmd: Record<string, unknown>): CommandResu
   if (typeof cmd.text !== "string") fail("INVALID_COMMAND", 'setText: "text" must be a string.', 'Example: { op: "setText", id: "n_4", text: "Hello" }.');
   const text = cmd.text;
   if (node.tag === TEXT_TAG) {
-    if (node.text !== text) ctx.apply({ kind: "text", id, text });
+    if (text === "") removeNode(ctx, id);
+    else if (node.text !== text) ctx.apply({ kind: "text", id, text });
     return { id };
   }
   const elementChild = node.children.find((c) => ctx.get(c)!.tag !== TEXT_TAG);

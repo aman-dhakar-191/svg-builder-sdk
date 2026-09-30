@@ -1,0 +1,2 @@
+# Byte-exact fixtures (CRLF, tabs) for round-trip tests.
+packages/parser/test/corpus/** -text

@@ -3,11 +3,6 @@ export type NodeId = string;
 /** Tag used for character data nodes. Their content lives in `text`. */
 export const TEXT_TAG = "#text";
 
-export interface SourceRange {
-  start: number;
-  end: number;
-}
-
 export interface SvgNode {
   id: NodeId;
   /** Element name ("rect", "g", ...) or TEXT_TAG for character data. */
@@ -18,9 +13,8 @@ export interface SvgNode {
   parent: NodeId | null;
   /** Character data, only present on TEXT_TAG nodes. */
   text?: string;
-  /** Source offsets in the code text. Filled in by the parser (Phase 1, step 2). */
-  range?: SourceRange;
-  attrRanges?: Record<string, SourceRange>;
+  // Source offsets live in the parser's source map, not here: history
+  // snapshots would otherwise restore stale offsets on undo.
 }
 
 export interface DocumentState {
@@ -112,6 +106,15 @@ export interface TreeNode {
   attrs: Record<string, string>;
   text?: string;
   children: TreeNode[];
+}
+
+/** Input for SvgDocument.fromTree. Nodes without an id get a fresh one. */
+export interface InputTree {
+  id?: NodeId | undefined;
+  tag: string;
+  attrs: Record<string, string>;
+  text?: string;
+  children: InputTree[];
 }
 
 export interface Query {

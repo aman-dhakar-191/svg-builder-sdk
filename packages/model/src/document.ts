@@ -17,6 +17,7 @@ import {
   type CommandError,
   type CommandResult,
   type CommandResultMap,
+  type InputTree,
   type NodeData,
   type NodeId,
   type Query,
@@ -42,9 +43,26 @@ export interface Transaction {
 }
 
 export interface CreateDocumentOptions {
-  /** Attributes for the root <svg>. Defaults to the SVG namespace only. */
+  /** Attributes for the root <svg>. Defaults to the SVG namespace only. Ignored with `tree`. */
   rootAttrs?: Record<string, string>;
+  /**
+   * Initial content, e.g. from the parser. Nodes keep their `id` if given
+   * (IDs must be unique); others get fresh IDs that never collide with them.
+   */
+  tree?: InputTree;
 }
+
+/** Called after each low-level change, including those from undo, redo and rollback. */
+export type MutationListener = (mutation: Mutation) => void;
+
+/**
+ * History boundaries. `entry` is an opaque token identifying one undo step,
+ * the same object for its commit, undo and redo. "discard" means an outermost
+ * transaction closed without adding history (rollback, failed or no-op command).
+ */
+export type HistoryEvent =
+  | { kind: "commit" | "undo" | "redo"; entry: object }
+  | { kind: "discard" };
 
 type BBoxResult = { ok: true; bbox: BBox } | { ok: false; reason: string };
 
@@ -59,16 +77,35 @@ export class SvgDocument {
   private pending: Step[] = [];
   /** Open transactions, innermost last; each holds its start offset into `pending`. */
   private openTx: { start: number; token: object }[] = [];
+  private readonly listeners = new Set<MutationListener>();
+  private readonly historyListeners = new Set<(e: HistoryEvent) => void>();
 
   constructor(options: CreateDocumentOptions = {}) {
-    this.root = this.newId();
-    this.nodes.set(this.root, {
-      id: this.root,
+    const tree: InputTree = options.tree ?? {
       tag: "svg",
-      attrs: { ...(options.rootAttrs ?? { xmlns: "http://www.w3.org/2000/svg" }) },
+      attrs: options.rootAttrs ?? { xmlns: "http://www.w3.org/2000/svg" },
       children: [],
-      parent: null,
-    });
+    };
+    const given = new Set<NodeId>();
+    const collect = (t: InputTree) => {
+      if (t.id !== undefined) {
+        if (given.has(t.id)) throw new Error(`Duplicate node id "${t.id}" in initial tree.`);
+        given.add(t.id);
+        const n = /^n_(\d+)$/.exec(t.id);
+        if (n) this.nextId = Math.max(this.nextId, Number(n[1]) + 1);
+      }
+      t.children.forEach(collect);
+    };
+    collect(tree);
+    const build = (t: InputTree, parent: NodeId | null): NodeId => {
+      const id = t.id ?? this.newId();
+      const node: SvgNode = { id, tag: t.tag, attrs: { ...t.attrs }, children: [], parent };
+      if (t.text !== undefined) node.text = t.text;
+      this.nodes.set(id, node);
+      node.children = t.children.map((c) => build(c, id));
+      return id;
+    };
+    this.root = build(tree, null);
     this.context = {
       root: this.root,
       get: (id) => this.nodes.get(id),
@@ -79,6 +116,22 @@ export class SvgDocument {
       newId: () => this.newId(),
       bbox: (id) => this.computeBBox(id),
     };
+  }
+
+  /**
+   * Subscribes to low-level changes as they are applied. The parser package
+   * uses this to turn every change into a minimal text patch. Listeners must
+   * not execute commands. Returns an unsubscribe function.
+   */
+  onMutation(listener: MutationListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** Subscribes to history boundaries (see HistoryEvent). Returns an unsubscribe function. */
+  onHistory(listener: (e: HistoryEvent) => void): () => void {
+    this.historyListeners.add(listener);
+    return () => this.historyListeners.delete(listener);
   }
 
   /** Increments on every change, including undo, redo and rollback. */
@@ -126,11 +179,16 @@ export class SvgDocument {
         for (let i = undone.length - 1; i >= 0; i--) this.mutate(undone[i]!.inverse);
       }
       if (this.openTx.length === 0) {
-        if (this.pending.length > 0) {
-          this.undoStack.push({ steps: this.pending });
-          this.redoStack = [];
-        }
+        const steps = this.pending;
         this.pending = [];
+        if (steps.length > 0) {
+          const entry = { steps };
+          this.undoStack.push(entry);
+          this.redoStack = [];
+          this.emitHistory({ kind: "commit", entry });
+        } else {
+          this.emitHistory({ kind: "discard" });
+        }
       }
     };
     return { commit: () => close(true), rollback: () => close(false) };
@@ -177,6 +235,7 @@ export class SvgDocument {
     if (!entry) return false;
     for (let i = entry.steps.length - 1; i >= 0; i--) this.mutate(entry.steps[i]!.inverse);
     this.redoStack.push(entry);
+    this.emitHistory({ kind: "undo", entry });
     return true;
   }
 
@@ -186,6 +245,7 @@ export class SvgDocument {
     if (!entry) return false;
     for (const step of entry.steps) this.mutate(step.forward);
     this.undoStack.push(entry);
+    this.emitHistory({ kind: "redo", entry });
     return true;
   }
 
@@ -264,7 +324,12 @@ export class SvgDocument {
   private mutate(m: Mutation): Mutation {
     const inverse = applyMutation(this.nodes, m);
     this._version++;
+    for (const listener of this.listeners) listener(m);
     return inverse;
+  }
+
+  private emitHistory(e: HistoryEvent): void {
+    for (const l of this.historyListeners) l(e);
   }
 
   private assertNoTransaction(action: string): void {

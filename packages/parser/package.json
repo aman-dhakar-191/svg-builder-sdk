@@ -1,8 +1,8 @@
 {
-  "name": "@svg-editor/model",
+  "name": "@svg-editor/parser",
   "version": "0.0.0",
   "private": true,
-  "description": "Pure-TS SVG document model: nodes, commands, history, queries. No DOM, no Electron.",
+  "description": "Position-aware SVG parser, minimal text patches for model changes, and ID reconciliation.",
   "type": "module",
   "exports": {
     ".": {
@@ -16,6 +16,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@svg-editor/model": "workspace:*"
   }
 }

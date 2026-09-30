@@ -21,12 +21,6 @@ export function cloneNode(node: SvgNode): SvgNode {
     parent: node.parent,
   };
   if (node.text !== undefined) copy.text = node.text;
-  if (node.range) copy.range = { ...node.range };
-  if (node.attrRanges) {
-    copy.attrRanges = Object.fromEntries(
-      Object.entries(node.attrRanges).map(([k, r]) => [k, { ...r }]),
-    );
-  }
   return copy;
 }
 
