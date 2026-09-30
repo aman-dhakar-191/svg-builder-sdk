@@ -7,11 +7,11 @@
   import { fade } from "../lib/motion.js";
   import type { AiSettingsUpdate, ApiFormat, Effort } from "../../shared/ai.js";
   import { agent } from "../lib/agent.svelte.js";
-  import { COMMANDS, formatKeys } from "../lib/commands.js";
+  import { COMMANDS, formatKeys, IS_MAC } from "../lib/commands.js";
   import { session, type Theme } from "../lib/session.svelte.js";
   import Dialog from "./Dialog.svelte";
 
-  type Section = "ai" | "appearance" | "editor" | "shortcuts";
+  type Section = "ai" | "appearance" | "editor" | "updates" | "shortcuts";
   let section: Section = $state("ai");
 
   // Form state, reset from the saved settings each time the dialog opens.
@@ -69,6 +69,7 @@
       <button aria-current={section === "ai"} onclick={() => (section = "ai")}><Sparkles size={15} />AI model</button>
       <button aria-current={section === "appearance"} onclick={() => (section = "appearance")}><Palette size={15} />Appearance</button>
       <button aria-current={section === "editor"} onclick={() => (section = "editor")}><PenTool size={15} />Editor</button>
+      {#if !IS_MAC}<button aria-current={section === "updates"} onclick={() => (section = "updates")}><RefreshCw size={15} />Updates</button>{/if}
       <button aria-current={section === "shortcuts"} onclick={() => (section = "shortcuts")}><Keyboard size={15} />Shortcuts</button>
     </nav>
 
@@ -127,6 +128,30 @@
             {/each}
           </fieldset>
         </div>
+      {:else if section === "updates"}
+        {@const u = session.update}
+        <div class="sec" id="updates" in:fade={{ duration: 120 }}>
+          <h2>Updates</h2>
+          <p class="hint">You have SVG Editor {session.appVersion}. New versions come from the project's GitHub releases.</p>
+          <label class="check"><input type="checkbox" checked={session.updateAutoCheck} onchange={(e) => session.setUpdateAutoCheck((e.target as HTMLInputElement).checked)} /><span>Check for updates when the app starts <small>(downloads in the background; installs when you restart or quit)</small></span></label>
+          <p id="update-status" role="status" class:err={u.state === "error"}>
+            {#if u.state === "checking"}Checking…
+            {:else if u.state === "none"}This is the latest version.
+            {:else if u.state === "available"}Version {u.version} is available.
+            {:else if u.state === "downloading"}Downloading version {u.version}: {u.percent}%
+            {:else if u.state === "ready"}Version {u.version} is ready.
+            {:else if u.state === "error" || u.state === "unsupported"}{u.message}
+            {/if}
+          </p>
+          <div class="foot">
+            <span class="spacer"></span>
+            {#if u.state === "ready"}
+              <button type="button" class="btn warm" onclick={() => session.restartToUpdate()}>Restart to update</button>
+            {:else}
+              <button type="button" class="btn" id="check-updates" disabled={u.state === "checking" || u.state === "downloading"} onclick={() => session.checkForUpdates()}>Check for updates</button>
+            {/if}
+          </div>
+        </div>
       {:else if section === "editor"}
         <div class="sec" in:fade={{ duration: 120 }}>
           <h2>Editor</h2>
@@ -178,6 +203,8 @@
   .check input, .radio input { accent-color: var(--ink); width: 16px; height: 16px; }
   fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
   #ai-settings-status { margin: 0; font-size: 12px; color: var(--ok); }
+  #update-status { margin: 0; min-height: 1.4em; }
+  #update-status.err { color: var(--err); }
   .foot { display: flex; gap: 8px; align-items: center; }
   table { border-collapse: collapse; width: 100%; }
   td { padding: 6px 0; border-bottom: 1px solid var(--line); }

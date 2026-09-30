@@ -166,6 +166,26 @@ jobs:
           # Unsigned builds until signing certificates are configured.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      # The app updates itself from GitHub Releases (Windows and Linux): each build must
+      # carry the feed file naming its installer, and the app its app-update.yml.
+      - name: Check update files
+        if: runner.os != 'macOS'
+        shell: bash
+        working-directory: apps/desktop/release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   FEED=latest-linux.yml; FILE=$(ls *.AppImage); RES=linux-unpacked/resources ;;
+            Windows) FEED=latest.yml; FILE=$(ls *.exe); RES=win-unpacked/resources ;;
+          esac
+          grep -qx "version: $VERSION" "$FEED" || { cat "$FEED"; echo "$FEED does not name version $VERSION"; exit 1; }
+          grep -q "url: $FILE" "$FEED" || { cat "$FEED"; echo "$FEED does not name $FILE"; exit 1; }
+          grep -q "sha512:" "$FEED" || { echo "$FEED has no checksum"; exit 1; }
+          grep -q "provider: github" "$RES/app-update.yml" || { cat "$RES/app-update.yml"; exit 1; }
+          grep -q "repo: svg-builder-sdk" "$RES/app-update.yml" || { cat "$RES/app-update.yml"; exit 1; }
+          echo "$FEED names $FILE ($VERSION); the app reads updates from GitHub Releases."
+
       - name: Smoke test the packaged app
         shell: bash
         working-directory: apps/desktop
@@ -250,6 +270,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload update feed (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: apps/desktop/release/latest-linux.yml
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload update feed (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: apps/desktop/release/latest.yml
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload installer (macOS, Apple silicon)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -278,7 +316,8 @@ jobs:
           TAG: v${{ needs.version.outputs.version }}
         run: |
           shopt -s nullglob
-          files=(*.AppImage *.exe *.dmg)
+          # latest*.yml and .blockmap files are the update feed (not builder-debug.yml).
+          files=(*.AppImage *.exe *.dmg latest*.yml *.blockmap)
           echo "Attaching ${files[*]}"
           gh release upload "$TAG" "${files[@]}" --clobber
 

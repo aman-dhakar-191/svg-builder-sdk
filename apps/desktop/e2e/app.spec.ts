@@ -102,12 +102,15 @@ test("renderer has no Node access", async () => {
 
 test("the main process bundle needs only Electron and Node built-ins (no document model, no paper.js)", async () => {
   const { readdirSync, readFileSync } = await import("node:fs");
+  const { builtinModules } = await import("node:module");
   const dir = fileURLToPath(new URL("../out/main/", import.meta.url));
   const required = new Set<string>();
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".cjs"))) {
     for (const m of readFileSync(`${dir}/${f}`, "utf8").matchAll(/require\("([^"]+)"\)/g)) required.add(m[1]!);
   }
-  const bad = [...required].filter((r) => r !== "electron" && !r.startsWith("node:") && !r.startsWith("./"));
+  // The package has no node_modules: anything else (paper.js's canvas / jsdom shims, say) would fail at start.
+  const builtin = (r: string) => r.startsWith("node:") || builtinModules.includes(r);
+  const bad = [...required].filter((r) => r !== "electron" && !builtin(r) && !r.startsWith("./"));
   expect(bad).toEqual([]);
 });
 

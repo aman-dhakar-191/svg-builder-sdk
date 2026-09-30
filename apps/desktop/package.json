@@ -32,6 +32,7 @@
     "@typescript/native": "npm:typescript@7.0.2",
     "electron": "^44.5.0",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
     "electron-vite": "^5.0.0",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",

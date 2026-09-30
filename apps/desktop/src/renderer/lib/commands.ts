@@ -16,6 +16,8 @@ export interface Command {
   separator?: boolean;
 }
 
+export const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
+
 export const COMMANDS: Command[] = [
   { action: "new", label: "New drawing", menu: "File", keys: "Mod+N" },
   { action: "open", label: "Open…", menu: "File", keys: "Mod+O" },
@@ -25,6 +27,7 @@ export const COMMANDS: Command[] = [
   { action: "export", label: "Export…", menu: "File", keys: "Mod+Shift+E", keywords: "svg png minify minified formatted pretty print image" },
   { action: "exportPng", label: "Export PNG…", menu: "File", keywords: "image picture" },
   { action: "settings", label: "Settings…", menu: "File", keys: "Mod+,", separator: true, keywords: "preferences ai model api key theme" },
+  ...(IS_MAC ? [] : [{ action: "checkUpdates", label: "Check for updates…", menu: "File", keywords: "update upgrade new version release download install" } satisfies Command]),
 
   { action: "undo", label: "Undo", menu: "Edit", keys: "Mod+Z" },
   { action: "redo", label: "Redo", menu: "Edit", keys: "Mod+Shift+Z" },
@@ -48,7 +51,6 @@ export const COMMANDS: Command[] = [
   { action: "toggleSnapShapes", label: "Snap to shapes", menu: "View", keywords: "smart guides align edges centres centers objects" },
 ];
 
-export const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
 
 /** "Mod+Shift+S" -> "Ctrl+Shift+S" (or "⌘⇧S" on macOS). */
 export function formatKeys(keys: string): string {

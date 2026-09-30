@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstruc
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { registerAiIpc } from "./ai/index.js";
+import { checkOnStart, registerUpdater } from "./updater.js";
 
 // Tests point userData at a temp dir so settings never touch the real profile.
 if (process.env.SVG_EDITOR_USER_DATA) app.setPath("userData", process.env.SVG_EDITOR_USER_DATA);
@@ -207,6 +208,8 @@ function buildMenu(): void {
           item("Export PNG…", "exportPng"),
           { type: "separator" },
           item("Settings…", "settings", "CmdOrCtrl+,"),
+          // No updates on macOS (unsigned builds).
+          ...(process.platform === "darwin" ? [] : [item("Check for Updates…", "checkUpdates")]),
           { type: "separator" },
           { role: "quit" },
         ],
@@ -327,8 +330,10 @@ app.on("web-contents-created", (_e, contents) => {
 
 void app.whenReady().then(() => {
   registerAiIpc();
+  registerUpdater();
   buildMenu();
   createWindow();
+  checkOnStart();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

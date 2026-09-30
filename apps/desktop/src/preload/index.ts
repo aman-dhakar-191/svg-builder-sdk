@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AiEvent, AiToolCall, AiToolOutcome, AiSettingsUpdate } from "../shared/ai.js";
-import type { DesktopApi, MenuAction, SaveResult, SvgExportStyle } from "../shared/api.js";
+import type { DesktopApi, MenuAction, SaveResult, SvgExportStyle, UpdateState } from "../shared/api.js";
 
 // The only surface the renderer gets from Electron: narrow, typed functions.
 // No paths cross this bridge; the main process remembers the file per window.
@@ -35,6 +35,15 @@ const api: DesktopApi = {
       ipcRenderer.on("ai:toolCall", (_e, call: AiToolCall) => listener(call));
     },
     sendToolResult: (callId: string, outcome: AiToolOutcome) => ipcRenderer.send("ai:toolResult", callId, outcome),
+  },
+  update: {
+    get: () => ipcRenderer.invoke("update:get"),
+    check: () => ipcRenderer.send("update:check"),
+    setAutoCheck: (on: boolean) => ipcRenderer.invoke("update:setAutoCheck", on),
+    install: () => ipcRenderer.send("update:install"),
+    onState: (listener: (state: UpdateState) => void) => {
+      ipcRenderer.on("update:state", (_e, state: UpdateState) => listener(state));
+    },
   },
 };
 

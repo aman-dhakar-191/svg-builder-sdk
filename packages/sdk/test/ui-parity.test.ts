@@ -224,6 +224,7 @@ const VIEW_ONLY: Record<string, string> = {
   toggleGrid: "grid display",
   toggleSnap: "snapping only rounds coordinates the caller then passes to doc.add / doc.transform",
   toggleSnapShapes: "snapping only adjusts the offset the caller then passes to doc.transform",
+  checkUpdates: "updates the app itself, not the document",
   select: "the select tool picks a mode for pointer input",
 };
 

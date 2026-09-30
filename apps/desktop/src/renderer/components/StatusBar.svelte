@@ -22,6 +22,11 @@
     {/key}
   </span>
   <span class="spacer"></span>
+  {#if session.update.state === "downloading"}
+    <span class="update" id="update-progress" transition:fade={{ duration: 140 }} title="Downloading version {session.update.version}">
+      Updating <span class="bar" aria-hidden="true"><span style:width="{session.update.percent}%"></span></span>{session.update.percent}%
+    </span>
+  {/if}
   <span>{size}</span>
   <span>{Math.round(session.zoom * 100)}%</span>
   {#if session.dirty}
@@ -38,5 +43,8 @@
   #status { overflow: hidden; text-overflow: ellipsis; }
   .msg.error { color: var(--err); }
   .state { display: inline-flex; align-items: center; gap: 2px; }
+  .update { display: inline-flex; align-items: center; gap: 6px; }
+  .bar { width: 60px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--ink); transition: width var(--med) var(--ease); }
   .saved { color: var(--ok); gap: 4px; }
 </style>

@@ -1,11 +1,13 @@
 <script lang="ts">
   import Download from "@lucide/svelte/icons/download";
   import PenTool from "@lucide/svelte/icons/pen-tool";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import { formatKeys, IS_MAC } from "../lib/commands.js";
   import { session } from "../lib/session.svelte.js";
+  import { fly } from "../lib/motion.js";
   import MenuBar from "./MenuBar.svelte";
 </script>
 
@@ -37,6 +39,11 @@
     <button class="icon-btn" id="open-settings" aria-label="Settings" title="Settings ({formatKeys('Mod+,')})" onclick={() => (session.overlay = "settings")}>
       <Settings size={17} />
     </button>
+    {#if session.update.state === "ready"}
+      <button class="btn warm" id="restart-to-update" title="Version {session.update.version} is downloaded" onclick={() => session.restartToUpdate()} in:fly={{ y: -6, duration: 180 }}>
+        <RefreshCw size={15} />Restart to update
+      </button>
+    {/if}
     <button class="btn primary" onclick={() => session.run("export")} disabled={session.lock !== null}><Download size={15} />Export</button>
   </div>
 </header>

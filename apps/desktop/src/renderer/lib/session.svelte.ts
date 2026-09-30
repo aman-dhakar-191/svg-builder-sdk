@@ -6,7 +6,7 @@ import { Annotation, Compartment, EditorState, type Extension } from "@codemirro
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { createEditor, EMPTY_SVG, SvgEditorError, type AbortSignalLike, type Editor, type LockInfo, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
-import type { DesktopApi, MenuAction, SvgExportStyle } from "../../shared/api.js";
+import type { DesktopApi, MenuAction, SvgExportStyle, UpdateState } from "../../shared/api.js";
 import { CanvasController, type Tool } from "../canvas.js";
 import { selectionHighlight, setHighlights } from "../highlight.js";
 import { SAMPLE } from "../sample.js";
@@ -100,6 +100,13 @@ export class Session {
   status: Status = $state({ text: "", error: false, id: 0 });
   docName = $state("Untitled.svg");
   dirty = $state(false);
+  /** The app's own update (Windows and Linux). */
+  update: UpdateState = $state({ state: "idle" });
+  appVersion = $state("");
+  updateAutoCheck = $state(true);
+  updatesSupported = $state(false);
+  /** The user asked (menu, palette, Settings): report "up to date" and errors too. */
+  private manualUpdateCheck = false;
   overlay: Overlay = $state(null);
   theme: Theme = $state(readTheme());
   canUndo = $state(false);
@@ -124,6 +131,13 @@ export class Session {
     this.showSelectionStatus([]);
     this.applyTheme();
     window.desktop?.onMenu((action) => this.run(action));
+    void window.desktop?.update?.get().then((u) => {
+      this.appVersion = u.current;
+      this.update = u.state;
+      this.updateAutoCheck = u.autoCheck;
+      this.updatesSupported = u.supported;
+    });
+    window.desktop?.update?.onState((u) => this.updateChanged(u));
   }
 
   private extensions(): Extension[] {
@@ -473,6 +487,34 @@ export class Session {
     if (this.canvas) this.canvas.snapShapes = this.snapShapes;
   }
 
+  private updateChanged(u: UpdateState): void {
+    this.update = u;
+    const manual = this.manualUpdateCheck;
+    if (u.state === "ready") this.showStatus(`Version ${u.version} is ready: restart to update.`, false);
+    else if (u.state === "none" && manual) this.showStatus(`SVG Editor ${u.version} is the latest version.`, false);
+    else if (u.state === "available") this.showStatus(`Version ${u.version} is available.`, false);
+    else if ((u.state === "error" || u.state === "unsupported") && manual) this.showStatus(u.message, u.state === "error");
+    if (u.state !== "checking") this.manualUpdateCheck = false;
+  }
+
+  checkForUpdates(): void {
+    this.manualUpdateCheck = true;
+    window.desktop.update.check();
+  }
+
+  async setUpdateAutoCheck(on: boolean): Promise<void> {
+    this.updateAutoCheck = on;
+    await window.desktop.update.setAutoCheck(on);
+  }
+
+  /** Restarts into the downloaded version: after the agent's turn, and with the drawing saved. */
+  async restartToUpdate(): Promise<void> {
+    if (this.update.state !== "ready") return;
+    if (this.lock) return this.showStatus("The agent is working: stop it or let it finish, then restart to update.", true);
+    if (this.dirty && !(await this.save(false))) return this.showStatus("Save the drawing first, then restart to update.", true);
+    window.desktop.update.install();
+  }
+
   /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
   svgText(style: SvgExportStyle): string {
     this.flush();
@@ -645,6 +687,7 @@ export class Session {
     toggleGrid: () => this.viewport?.toggleGrid(),
     toggleSnap: () => this.viewport?.toggleSnap(),
     toggleSnapShapes: () => this.toggleSnapShapes(),
+    checkUpdates: () => this.checkForUpdates(),
     undo: () => void this.undo(),
     redo: () => void this.redo(),
     toggleMode: () => this.toggleMode(),

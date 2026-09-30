@@ -48,6 +48,8 @@ Installers are built by GitHub Actions only, never locally. They are **unsigned*
 - `SVG-Editor-<version>-mac-arm64.dmg` (Apple silicon) and `…-mac-x64.dmg` (Intel)
 - `SVG-Editor-<version>-linux-x86_64.AppImage`
 
+**Updates (Windows and Linux AppImage):** the installed app checks the Releases page a few seconds after it starts, downloads a new version in the background and shows **Restart to update**; otherwise it installs when you quit. File > Check for Updates… checks now; Settings > Updates can turn the automatic check off. macOS builds do not update themselves (they are unsigned): download the new `.dmg` from Releases.
+
 **Test builds:** every other push builds the same installers as `<next>-dev.<run>` versions. Open the **Actions** tab, pick the CI run, and download them from **Artifacts** (each is the installer file itself, not a zip).
 
 Each installer is smoke-tested in CI (the packaged app is launched and checked) before it is uploaded. The patch number goes up automatically; to start a new minor or major version, change `version` in `apps/desktop/package.json` (e.g. to `0.2.0`).
