@@ -13,6 +13,20 @@ apps/
   desktop/  Electron app: code pane + live canvas                          (step 3)
 ```
 
+## Download the app
+
+Installers are built by GitHub Actions only, never locally. They are **unsigned** for now, so on first launch:
+- **Windows:** SmartScreen warns; choose "More info" → "Run anyway".
+- **macOS:** right-click the app → Open.
+- **Linux:** mark the AppImage executable, then run it.
+
+To get them: open the repository's **Actions** tab, pick the latest green **CI** run, and download from **Artifacts**:
+- `SVG-Editor-Windows` (`.exe` installer)
+- `SVG-Editor-macOS` (`.dmg`, Apple silicon and Intel)
+- `SVG-Editor-Linux` (`.AppImage`)
+
+Each installer is smoke-tested in CI (the packaged app is launched and checked) before it is uploaded.
+
 ## Building
 
 CI in GitHub Actions is the build of record: every push runs install, typecheck, tests and build on Node 22 and 24, and uploads `packages/*/dist` as the `dist` artifact.

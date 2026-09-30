@@ -1,0 +1,33 @@
+# Installers are built in GitHub Actions (.github/workflows/ci.yml, "package" job).
+appId: dev.svg-editor.desktop
+productName: SVG Editor
+executableName: svg-editor
+copyright: Copyright © aman-dhakar-191
+directories:
+  output: release
+# Everything the app needs is bundled into out/ by electron-vite; no node_modules.
+files:
+  - out/**/*
+  - package.json
+npmRebuild: false
+asar: true
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+linux:
+  target: [AppImage]
+  category: Graphics
+  executableName: svg-editor
+  syncDesktopName: true
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  # Apple silicon and Intel.
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.graphics-design
+  # Unsigned until a signing certificate is configured.
+  identity: null
+publish: null
