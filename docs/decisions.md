@@ -200,3 +200,11 @@
 | Inspector | Common properties first (X/Y scrub fields, fill/stroke with the document's colours, stroke width, opacity, text); every raw attribute stays under **All attributes**. X/Y move with `translateInRoot`, like a canvas drag. | Raw attribute lists were the whole panel before; hard to use. |
 | Agent composer | Enter sends, Shift+Enter is a new line; Send is disabled while empty and replaced by Stop during a turn. A missing key opens Settings with the message. | |
 
+## Phase 2, step 5: polish (first part)
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Hover highlight | Pointing at markup in the code pane, or at a row in Layers, draws a dashed outline around that element on the canvas (not a selection: no handles, nothing changes). Hidden during a gesture and for elements already selected. Uses the same `nodeAt` lookup as the code cursor, and only when code and model agree. | Plan: "hover in code = highlight on canvas". |
+| Export | **Export…** (title bar, File menu, Ctrl+Shift+E) offers PNG, SVG formatted (one element per line, two-space indent) or SVG minified (no whitespace between tags), with the SVG sizes shown. Both SVG styles come from the SDK's `toSvg({ pretty })`; comments and the file's own formatting are not kept (Save keeps them). The copy never replaces the open file: choosing its path is refused with a message, since the editor would no longer match the disk. | Plan: "pretty-print/minify on export". Minify does not shorten numbers or path data, or drop editor metadata (Inkscape/Sodipodi); revisit if file size matters. |
+| Failed agent steps | A failed step shows its reason on its own line; the turn's steps header says how many failed, so it shows even when collapsed. A step still running when a turn ends reads "Did not finish". The tool's `hint` is for the model and is not shown. | Plan: "surface failed AI commands clearly in chat". |
+

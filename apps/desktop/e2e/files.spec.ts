@@ -177,6 +177,45 @@ test("save as, then export PNG at the drawing's size", async () => {
   expect(png.readUInt32BE(20)).toBe(240);
 });
 
+test("export SVG formatted or minified writes a copy and leaves the open file alone", async () => {
+  const svgPath = join(dir, "drawing.svg");
+  await stubSave(svgPath);
+  await menu("saveAs");
+  await expect.poll(title).toBe("drawing.svg — SVG Editor");
+  const original = await code();
+  const read = (p: string) => {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  const minPath = join(dir, "drawing.min.svg");
+  await stubSave(minPath);
+  await page.getByRole("button", { name: "Export" }).click();
+  await expect(page.locator('[data-export="minified"]')).toContainText(/\d+ B|KB/);
+  await page.locator('[data-export="minified"]').click();
+  await expect.poll(() => read(minPath)).toMatch(/^<svg[^>]*><rect/);
+  expect(read(minPath)).not.toMatch(/>\s+</);
+
+  const fmtPath = join(dir, "drawing.formatted.svg");
+  await stubSave(fmtPath);
+  await page.keyboard.press("Control+Shift+E");
+  await page.locator('[data-export="formatted"]').click();
+  await expect.poll(() => read(fmtPath)).toMatch(/^<svg[^>]*>\n  <rect/);
+  expect(read(fmtPath).length).toBeGreaterThan(read(minPath).length);
+
+  // Exporting over the open file is refused: the editor would no longer match the disk.
+  await stubSave(svgPath);
+  await page.getByRole("button", { name: "Export" }).click();
+  await page.locator('[data-export="minified"]').click();
+  await expect(page.locator("#status")).toHaveText("That is the open file. Export to another name, or use Save.");
+  expect(read(svgPath)).toBe(original);
+  expect(await code()).toBe(original);
+  expect(await title()).toBe("drawing.svg — SVG Editor");
+});
+
 test("zoom, grid and snapping", async () => {
   const width = async () => (await page.locator("#canvas svg").boundingBox())!.width;
   await menu("zoom100");

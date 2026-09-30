@@ -78,6 +78,8 @@ export class CanvasController {
   private nodeEdit: NodeId | null = null;
   /** Told when node editing starts or ends (for a status hint). */
   onNodeEdit: (editing: boolean) => void = () => {};
+  /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
+  private hover: NodeId | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -342,6 +344,22 @@ export class CanvasController {
 
   // ------------------------------------------------------------- overlay
 
+  /** Outlines `id` on the canvas as a hover hint; null clears it. */
+  setHover(id: NodeId | null): void {
+    if (id === this.hover) return;
+    this.hover = id;
+    this.drawOverlay();
+  }
+
+  private drawHover(o: SVGSVGElement, local: (p: Point) => Point): void {
+    const id = this.hover;
+    if (id === null || this.gesture || this.selection.includes(id) || !this.editor.doc.has(id)) return;
+    const item = this.itemFor(id);
+    if (!item) return;
+    const pts = this.screenCorners(item).map(local);
+    o.appendChild(svgEl("polygon", { class: "hover-outline", points: pts.map((p) => `${p.x},${p.y}`).join(" ") }));
+  }
+
   private drawOverlay(): void {
     const o = this.overlay;
     const origin = o.getBoundingClientRect();
@@ -352,6 +370,7 @@ export class CanvasController {
       this.drawNodes(o, local);
       return;
     }
+    this.drawHover(o, local);
     const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
     if (items.length === 0 || this.gesture?.kind === "draw") return;
 

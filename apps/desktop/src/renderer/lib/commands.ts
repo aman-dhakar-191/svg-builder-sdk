@@ -22,6 +22,7 @@ export const COMMANDS: Command[] = [
   { action: "startScreen", label: "Open recent…", menu: "File", keywords: "start recent files" },
   { action: "save", label: "Save", menu: "File", keys: "Mod+S", separator: true },
   { action: "saveAs", label: "Save as…", menu: "File", keys: "Mod+Shift+S" },
+  { action: "export", label: "Export…", menu: "File", keys: "Mod+Shift+E", keywords: "svg png minify minified formatted pretty print image" },
   { action: "exportPng", label: "Export PNG…", menu: "File", keywords: "image picture" },
   { action: "settings", label: "Settings…", menu: "File", keys: "Mod+,", separator: true, keywords: "preferences ai model api key theme" },
 

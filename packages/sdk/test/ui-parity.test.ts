@@ -122,6 +122,14 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
     },
   },
   {
+    ui: "Export SVG (formatted / minified)",
+    sdk: "editor.toSvg({ pretty })",
+    run: (ed) => {
+      expect(ed.toSvg({ pretty: true })).toContain("\n  <");
+      expect(ed.toSvg()).not.toMatch(/>\s+</);
+    },
+  },
+  {
     ui: "AI turn / Debug > Simulate AI turn (editor locked)",
     sdk: "editor.runLocked(options, fn) / editor.lock()",
     run: async (ed) => {
@@ -201,6 +209,7 @@ const VIEW_ONLY: Record<string, string> = {
   commandPalette: "opens a searchable list of the other actions",
   settings: "app settings (AI model, theme, grid)",
   startScreen: "opens the start screen; its actions are New and Open",
+  export: "opens the export dialog; its choices are Export PNG and Export SVG",
   toggleGrid: "grid display",
   toggleSnap: "snapping only rounds coordinates the caller then passes to doc.add / doc.transform",
   select: "the select tool picks a mode for pointer input",

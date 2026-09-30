@@ -105,12 +105,16 @@
             <button class="steps-head" aria-expanded={!collapsed.has(t.id)} onclick={() => toggle(t.id)}>
               <span class="chev" class:open={!collapsed.has(t.id)}><ChevronRight size={14} /></span>
               {t.status === "running" ? "Working on the drawing" : "Worked on the drawing"}
+              {#if t.steps.some((s) => s.state === "error")}
+                {@const failed = t.steps.filter((s) => s.state === "error").length}
+                <span class="failed">· {failed} step{failed === 1 ? "" : "s"} failed</span>
+              {/if}
             </button>
             {#if !collapsed.has(t.id)}
               <ul class="chat-tools" transition:slide={{ duration: 160 }}>
                 {#each t.steps as s}
                   <li class={s.state === "error" ? "error" : s.state === "ok" ? "ok" : "running"} title={s.input} in:fly={{ x: -6, duration: 160 }}>
-                    <span class="state" aria-hidden="true">{#if s.state === "running"}<LoaderCircle size={13} class="spin" />{:else if s.state === "ok"}<Check size={13} />{:else}<X size={13} />{/if}</span>{toolLabel(s.name)}{#if s.error}: {s.error}{/if}{#if s.image}<img class="chat-snapshot" alt="Snapshot the agent looked at" src={s.image} />{/if}
+                    <span class="state" aria-hidden="true">{#if s.state === "running"}<LoaderCircle size={13} class="spin" />{:else if s.state === "ok"}<Check size={13} />{:else}<X size={13} />{/if}</span>{toolLabel(s.name)}{#if s.error}<span class="step-error">{s.error}</span>{/if}{#if s.image}<img class="chat-snapshot" alt="Snapshot the agent looked at" src={s.image} />{/if}
                   </li>
                 {/each}
               </ul>
@@ -181,6 +185,8 @@
   .chat-tools .state { display: inline-grid; }
   .chat-tools li.ok .state { color: var(--ok); }
   .chat-tools li.error { color: var(--err); }
+  .step-error { flex-basis: 100%; margin: 2px 0 2px 19px; padding: 4px 8px; border-radius: 6px; background: var(--err-soft); color: var(--err); }
+  .failed { color: var(--err); }
   .chat-tools li.running .state { color: var(--warm); }
   .chat-snapshot { flex-basis: 100%; display: block; max-width: 180px; max-height: 150px; margin: 4px 0 2px 19px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
   .chat-msg.assistant { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }

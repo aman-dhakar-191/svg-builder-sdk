@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { registerAiIpc } from "./ai/index.js";
 
 // Tests point userData at a temp dir so settings never touch the real profile.
@@ -142,6 +142,19 @@ ipcMain.handle("file:exportPng", async (e, bytes: Uint8Array) => {
   return { saved: true, name: basename(r.filePath) };
 });
 
+ipcMain.handle("file:exportSvg", async (e, text: unknown, style: unknown) => {
+  const win = senderWindow(e);
+  if (typeof text !== "string" || (style !== "formatted" && style !== "minified")) throw new Error("exportSvg: bad arguments");
+  const open = stateOf(win).path;
+  const base = open?.replace(/\.svg$/i, "") ?? "Untitled";
+  const r = await dialog.showSaveDialog(win, { defaultPath: `${base}.${style === "minified" ? "min" : "formatted"}.svg`, filters: SVG_FILTER });
+  if (r.canceled || !r.filePath) return { saved: false };
+  // Writing over the open file would leave the editor showing text that is no longer on disk.
+  if (open && resolve(r.filePath) === resolve(open)) return { saved: false, error: "That is the open file. Export to another name, or use Save." };
+  await writeFile(r.filePath, text, "utf8");
+  return { saved: true, name: basename(r.filePath) };
+});
+
 ipcMain.on("doc:dirty", (e, dirty: boolean) => {
   const win = senderWindow(e);
   stateOf(win).dirty = dirty === true;
@@ -190,6 +203,7 @@ function buildMenu(): void {
           { type: "separator" },
           item("Save", "save", "CmdOrCtrl+S"),
           item("Save As…", "saveAs", "CmdOrCtrl+Shift+S"),
+          item("Export…", "export", "CmdOrCtrl+Shift+E"),
           item("Export PNG…", "exportPng"),
           { type: "separator" },
           item("Settings…", "settings", "CmdOrCtrl+,"),

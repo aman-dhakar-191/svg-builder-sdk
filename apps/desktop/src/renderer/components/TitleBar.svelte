@@ -37,7 +37,7 @@
     <button class="icon-btn" id="open-settings" aria-label="Settings" title="Settings ({formatKeys('Mod+,')})" onclick={() => (session.overlay = "settings")}>
       <Settings size={17} />
     </button>
-    <button class="btn primary" onclick={() => session.run("exportPng")} disabled={session.lock !== null}><Download size={15} />Export</button>
+    <button class="btn primary" onclick={() => session.run("export")} disabled={session.lock !== null}><Download size={15} />Export</button>
   </div>
 </header>
 

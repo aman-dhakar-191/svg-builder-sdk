@@ -116,6 +116,7 @@ button:disabled { cursor: default; }
 #overlay .handle.ctrl { fill: var(--ink); stroke: var(--panel); cursor: move; }
 #overlay .ctrl-line { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 2 2; }
 #overlay .sel-outline { fill: none; stroke: var(--ink); stroke-width: 1; }
+#overlay .hover-outline { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-opacity: 0.55; stroke-dasharray: 3 2; }
 #overlay .sel-group { fill: none; stroke: var(--ink); stroke-dasharray: 4 3; }
 #overlay .sel-stem { stroke: var(--ink); }
 #overlay .marquee { fill: color-mix(in srgb, var(--ink) 12%, transparent); stroke: var(--ink); stroke-dasharray: 3 2; }

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AiEvent, AiToolCall, AiToolOutcome, AiSettingsUpdate } from "../shared/ai.js";
-import type { DesktopApi, MenuAction, SaveResult } from "../shared/api.js";
+import type { DesktopApi, MenuAction, SaveResult, SvgExportStyle } from "../shared/api.js";
 
 // The only surface the renderer gets from Electron: narrow, typed functions.
 // No paths cross this bridge; the main process remembers the file per window.
@@ -10,6 +10,7 @@ const api: DesktopApi = {
   save: (text: string): Promise<SaveResult> => ipcRenderer.invoke("file:save", text),
   saveAs: (text: string): Promise<SaveResult> => ipcRenderer.invoke("file:saveAs", text),
   exportPng: (bytes: Uint8Array): Promise<SaveResult> => ipcRenderer.invoke("file:exportPng", bytes),
+  exportSvg: (text: string, style: SvgExportStyle): Promise<SaveResult> => ipcRenderer.invoke("file:exportSvg", text, style),
   newDocument: (): void => ipcRenderer.send("doc:new"),
   setDirty: (dirty: boolean): void => ipcRenderer.send("doc:dirty", dirty),
   closeWindow: (): void => ipcRenderer.send("window:close"),

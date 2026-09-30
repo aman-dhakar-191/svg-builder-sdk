@@ -7,6 +7,7 @@
   import SettingsDialog from "./components/SettingsDialog.svelte";
   import Stage from "./components/Stage.svelte";
   import StartScreen from "./components/StartScreen.svelte";
+  import ExportDialog from "./components/ExportDialog.svelte";
   import StatusBar from "./components/StatusBar.svelte";
   import TitleBar from "./components/TitleBar.svelte";
   import { commandForKey } from "./lib/commands.js";
@@ -42,6 +43,7 @@
 <CommandPalette />
 <SettingsDialog />
 <StartScreen />
+<ExportDialog />
 
 <style>
   .app { height: 100%; display: flex; flex-direction: column; background: var(--panel-2); }

@@ -7,6 +7,7 @@ export type MenuAction =
   | "open"
   | "save"
   | "saveAs"
+  | "export"
   | "exportPng"
   | "saveAndClose"
   | "zoomIn"
@@ -41,7 +42,12 @@ export interface RecentFile {
 export interface SaveResult {
   saved: boolean;
   name?: string;
+  /** Why nothing was written, when the user should be told. */
+  error?: string;
 }
+
+/** SVG export styles: re-indented, or with no whitespace between tags. */
+export type SvgExportStyle = "formatted" | "minified";
 
 export interface DesktopApi {
   platform: string;
@@ -49,6 +55,8 @@ export interface DesktopApi {
   save(text: string): Promise<SaveResult>;
   saveAs(text: string): Promise<SaveResult>;
   exportPng(bytes: Uint8Array): Promise<SaveResult>;
+  /** Writes a copy; the open file and its path are unchanged. */
+  exportSvg(text: string, style: SvgExportStyle): Promise<SaveResult>;
   newDocument(): void;
   setDirty(dirty: boolean): void;
   closeWindow(): void;

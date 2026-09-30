@@ -141,3 +141,22 @@ test("reduced motion: dialogs and panels appear without animating", async () => 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
+
+test("pointing at markup in the code pane or at a layer outlines that element on the canvas", async () => {
+  const at = await page.evaluate(() => {
+    const { view } = (window as unknown as { editor: { view: import("@codemirror/view").EditorView } }).editor;
+    const c = view.coordsAtPos(view.state.doc.toString().indexOf("<circle") + 3)!;
+    return { x: c.left + 1, y: (c.top + c.bottom) / 2 };
+  });
+  await page.mouse.move(at.x, at.y);
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(1);
+  await expect(page.locator("#overlay .handle")).toHaveCount(0); // a hint, not a selection
+  await page.mouse.move(5, 300);
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(0);
+
+  await page.locator("#tab-layers-button").click();
+  await page.locator(".layer-row").first().hover();
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(1);
+  await page.locator(".layer-row").first().click(); // once selected, the selection outline takes over
+  await expect(page.locator("#overlay .hover-outline")).toHaveCount(0);
+});

@@ -6,7 +6,7 @@ import { Annotation, Compartment, EditorState, type Extension } from "@codemirro
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { createEditor, EMPTY_SVG, SvgEditorError, type AbortSignalLike, type Editor, type LockInfo, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
-import type { DesktopApi, MenuAction } from "../../shared/api.js";
+import type { DesktopApi, MenuAction, SvgExportStyle } from "../../shared/api.js";
 import { CanvasController, type Tool } from "../canvas.js";
 import { selectionHighlight, setHighlights } from "../highlight.js";
 import { SAMPLE } from "../sample.js";
@@ -28,7 +28,7 @@ declare global {
 
 export type Mode = "editor" | "agent";
 export type Theme = "system" | "light" | "dark";
-export type Overlay = "palette" | "settings" | "start" | null;
+export type Overlay = "palette" | "settings" | "start" | "export" | null;
 export interface Status {
   text: string;
   error: boolean;
@@ -138,6 +138,15 @@ export class Session {
         { key: "Mod-y", run: () => this.redo(), preventDefault: true },
         ...defaultKeymap,
       ]),
+      // Pointing at markup outlines its element on the canvas.
+      EditorView.domEventHandlers({
+        mousemove: (e, view) => {
+          const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }, false);
+          const id = pos === null || view.state.doc.toString() !== this.editor.text ? undefined : this.editor.nodeAt(pos);
+          this.canvas?.setHover(id === undefined || id === this.editor.doc.root ? null : id);
+        },
+        mouseleave: () => this.canvas?.setHover(null),
+      }),
       EditorView.updateListener.of((u) => {
         if (u.transactions.some((t) => t.annotation(fromModel))) return;
         if (u.docChanged) {
@@ -394,6 +403,22 @@ export class Session {
     }
   }
 
+  /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
+  svgText(style: SvgExportStyle): string {
+    this.flush();
+    return this.editor.toSvg({ pretty: style === "formatted" }) + (style === "formatted" ? "\n" : "");
+  }
+
+  async exportSvg(style: SvgExportStyle): Promise<void> {
+    try {
+      const r = await window.desktop.exportSvg(this.svgText(style), style);
+      if (r.saved) this.showStatus(`Exported ${r.name}`, false);
+      else if (r.error) this.showStatus(r.error, true);
+    } catch (e) {
+      this.showStatus(e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
   text(): string {
     return this.view.state.doc.toString();
   }
@@ -533,6 +558,7 @@ export class Session {
     save: () => this.guard(() => void this.save(false)),
     saveAs: () => this.guard(() => void this.save(true)),
     saveAndClose: () => this.guard(() => void this.save(false).then((ok) => ok && window.desktop.closeWindow())),
+    export: () => this.guard(() => (this.overlay = "export")),
     exportPng: () => this.guard(() => void this.exportPng()),
     simulateAiTurn: () => void this.simulateAiTurn(),
     convertToPath: () => this.convertToPath(),
