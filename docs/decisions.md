@@ -42,3 +42,16 @@
 | Undo | CodeMirror has no history; Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y go to the model (pending typing is flushed first). | Plan rule: the model owns history. |
 | UI framework | None yet (plain TypeScript). | Still an open decision in the plan; decide before step 4/5 adds panels. |
 | E2E tests | Playwright drives the built Electron app under Xvfb in CI. | New dev dependencies: `@playwright/test`, `electron`, `electron-vite`, `vite`, CodeMirror 6 packages. |
+
+## Phase 1, step 4: canvas interaction
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Gestures | While dragging, only the DOM is previewed (the element's `transform` attribute, using the same math as the command). On release, one command (a `batch` for several elements) goes to the model. Escape cancels without touching the model. | One gesture = one undo step and one minimal code patch. The code pane updates on release, not during the drag; live code updates would re-parse on every mouse move. |
+| Transform space | `transform` gained `space: "local"`: ops are appended, so they act along the element's own axes. Single-element resize uses it; move, rotate and multi-element resize use parent space. | Resizing a rotated shape in parent space would skew it. E2E tests check the committed result renders exactly where the preview was. |
+| Resize | Via `scale` transforms, as the plan says. Strokes scale too. | If you want strokes to keep their width, resize rect/ellipse/line by editing their geometry attributes instead; that is a small change in `canvas.ts`. |
+| Selection | Click selects the topmost element below the root or an Inkscape layer (`inkscape:groupmode="layer"`); Ctrl/Cmd+click selects the deepest. Shift+click toggles. Marquee selects fully enclosed elements. | |
+| Two-way highlight | Canvas selection marks the nodes' source in the code pane (a decoration, the cursor does not move). Moving the code cursor selects the deepest element at that position (`SourceDocument.nodeAt`). | |
+| Tools | Select (V), Rect (R), Ellipse (E), Line (L), Text (T). Shift constrains (square, circle, 45 degree lines, axis-locked moves, 15 degree rotation steps, proportional resize). New shapes go to the end of the root. Text: click, type, Enter; add + setText in one transaction. | Drawing into the selected group or current layer is a later refinement. |
+| Keyboard | Delete/Backspace deletes; arrows nudge 1 (Shift: 10) user units; Escape cancels or deselects; Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y work from the canvas too. | |
+| Rendering | Still a full re-render after each change. | Revisit with large files (step 5 zoom/pan is a good time). |

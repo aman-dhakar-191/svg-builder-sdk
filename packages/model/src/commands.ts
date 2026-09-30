@@ -337,6 +337,10 @@ function transform(ctx: CommandContext, cmd: Record<string, unknown>): CommandRe
     fail("INVALID_COMMAND", "transform: scale factors must be non-zero.", "A zero scale collapses the element; delete it instead, or use a small value.");
   }
 
+  const space = cmd.space ?? "parent";
+  if (space !== "parent" && space !== "local") {
+    fail("INVALID_COMMAND", `transform: "space" must be "parent" or "local", got ${JSON.stringify(cmd.space)}.`, 'Use "local" to transform along the element\'s own axes.');
+  }
   const existing = node.attrs.transform;
   const ops = existing === undefined ? [] : parseTransformList(existing);
   if (!ops) {
@@ -351,7 +355,7 @@ function transform(ctx: CommandContext, cmd: Record<string, unknown>): CommandRe
         fail("BBOX_UNAVAILABLE", `transform: cannot find the center of "${id}": ${box.reason}`, "Pass an explicit origin: [x, y] in the parent's coordinates.");
       }
       const center: Vec2 = [box.bbox.x + box.bbox.width / 2, box.bbox.y + box.bbox.height / 2];
-      origin = applyToPoint(parseTransform(existing)!, center);
+      origin = space === "local" ? center : applyToPoint(parseTransform(existing)!, center);
     }
   } else if (cmd.origin !== undefined) {
     origin = requireVec2(cmd.origin, "origin");
@@ -361,7 +365,7 @@ function transform(ctx: CommandContext, cmd: Record<string, unknown>): CommandRe
   const [ox, oy] = origin;
   const aroundOrigin = ox !== 0 || oy !== 0;
   const prefix: string[] = [];
-  // Written outermost first: translate is applied last, scale first, all in parent space.
+  // Written outermost first: translate is applied last, scale first.
   if (translate) prefix.push(`translate(${f(translate[0])} ${f(translate[1])})`);
   if (rotate !== undefined) prefix.push(aroundOrigin ? `rotate(${f(rotate)} ${f(ox)} ${f(oy)})` : `rotate(${f(rotate)})`);
   if (scale) {
@@ -371,7 +375,11 @@ function transform(ctx: CommandContext, cmd: Record<string, unknown>): CommandRe
 
   let value: string;
   const first = ops[0];
-  if (translate && !scale && rotate === undefined && first?.name === "translate") {
+  if (space === "local") {
+    // Local ops go after the existing list: they apply first, in the element's own space.
+    const rest = existing?.trim();
+    value = rest ? `${rest} ${prefix.join(" ")}` : prefix.join(" ");
+  } else if (translate && !scale && rotate === undefined && first?.name === "translate") {
     // Fold repeated moves into the existing leading translate instead of stacking them.
     const merged = `translate(${f(first.args[0]! + translate[0])} ${f((first.args[1] ?? 0) + translate[1])})`;
     value = merged + existing!.slice(first.end);

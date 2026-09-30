@@ -123,6 +123,19 @@ export class SourceDocument {
     return n && { start: n.start, end: n.end };
   }
 
+  /** Deepest element whose source contains `offset` (for "cursor in code selects node"). */
+  nodeAt(offset: number): NodeId | undefined {
+    let found: NodeId | undefined;
+    let el: ParsedElement | undefined = this.root;
+    while (el) {
+      const id = this.map.idOf.get(el);
+      if (id !== undefined) found = id;
+      const inner: ParsedNode | undefined = el.children.find((c) => c.kind === "element" && c.start <= offset && offset < c.end);
+      el = inner?.kind === "element" ? inner : undefined;
+    }
+    return found;
+  }
+
   // ---------------------------------------------------------------- core
 
   /**

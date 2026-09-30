@@ -1,0 +1,565 @@
+import { TEXT_TAG, type Command, type NodeId } from "@svg-editor/model";
+import type { SourceDocument } from "@svg-editor/parser";
+import {
+  angleBetween,
+  anchorPoint,
+  apply,
+  applyLinear,
+  boundsOf,
+  contains,
+  corners,
+  HANDLES,
+  invert,
+  mat,
+  rectFromPoints,
+  resizeScale,
+  round,
+  snap,
+  type Handle,
+  type Mat,
+  type Point,
+  type Rect,
+} from "./geometry.js";
+import { renderTree } from "./render.js";
+
+export type Tool = "select" | "rect" | "ellipse" | "line" | "text";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const DRAG_THRESHOLD = 3;
+const ROTATE_OFFSET = 24;
+const DRAW_STYLE = { fill: "#93c5fd", stroke: "#1e3a8a", "stroke-width": "1" };
+
+/** Elements that draw something and can be selected on the canvas. */
+const GRAPHIC = new Set(["g", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "image", "use", "svg", "foreignObject", "a", "switch"]);
+
+type Gesture =
+  | { kind: "move"; start: Point; items: Item[]; moved: boolean }
+  | { kind: "resize"; handle: Handle; items: Item[]; box: Rect; local: boolean }
+  | { kind: "rotate"; center: Point; start: Point; items: Item[] }
+  | { kind: "marquee"; start: Point; additive: boolean; rect: SVGRectElement }
+  | { kind: "draw"; tool: Exclude<Tool, "select" | "text">; start: Point; el: SVGElement };
+
+/** A selected element during a gesture, with what is needed to preview and commit. */
+interface Item {
+  id: NodeId;
+  el: SVGGraphicsElement;
+  original: string | null;
+  parentInv: Mat;
+  /** Element user space -> screen. */
+  ctm: Mat;
+  bbox: Rect;
+  preview?: string;
+  command?: Command;
+}
+
+/**
+ * Canvas interaction: selection, handles, gestures and drawing tools. Every
+ * change goes to the model as one command (a batch for multi-selection), sent
+ * when the gesture ends; while dragging, only the DOM is previewed. So one
+ * gesture is one undo step and the code pane gets one minimal patch.
+ */
+export class CanvasController {
+  private svg: SVGSVGElement | null = null;
+  private nodeOf = new WeakMap<Element, NodeId>();
+  private elOf = new Map<NodeId, SVGGraphicsElement>();
+  private selection: NodeId[] = [];
+  private gesture: Gesture | null = null;
+  private _tool: Tool = "select";
+  private textInput: HTMLInputElement | null = null;
+
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly overlay: SVGSVGElement,
+    private readonly source: SourceDocument,
+    private readonly onSelection: (ids: NodeId[]) => void,
+    private readonly onTool: (tool: Tool) => void,
+  ) {
+    host.addEventListener("pointerdown", (e) => this.pointerDown(e));
+    overlay.addEventListener("pointerdown", (e) => this.pointerDown(e));
+    window.addEventListener("pointermove", (e) => this.pointerMove(e));
+    window.addEventListener("pointerup", (e) => this.pointerUp(e));
+    host.addEventListener("keydown", (e) => this.keyDown(e));
+    new ResizeObserver(() => this.drawOverlay()).observe(host);
+    host.addEventListener("scroll", () => this.drawOverlay());
+  }
+
+  get tool(): Tool {
+    return this._tool;
+  }
+
+  setTool(tool: Tool): void {
+    this._tool = tool;
+    this.host.dataset.tool = tool;
+    this.onTool(tool);
+  }
+
+  getSelection(): NodeId[] {
+    return [...this.selection];
+  }
+
+  /** Selects exactly these nodes (e.g. from the code cursor). */
+  select(ids: NodeId[], notify = true): void {
+    this.selection = ids.filter((id, i) => ids.indexOf(id) === i && this.elOf.has(id));
+    this.drawOverlay();
+    if (notify) this.onSelection(this.getSelection());
+  }
+
+  /** Rebuilds the canvas from the model and keeps the selection where possible. */
+  render(): void {
+    const { svg, nodeOf } = renderTree(this.source.doc.getTree()!);
+    this.svg = svg;
+    this.nodeOf = nodeOf;
+    this.elOf.clear();
+    const walk = (el: Element) => {
+      const id = nodeOf.get(el);
+      if (id !== undefined && el instanceof SVGGraphicsElement) this.elOf.set(id, el);
+      for (const c of Array.from(el.children)) walk(c);
+    };
+    walk(svg);
+    this.host.replaceChildren(svg);
+    const kept = this.selection.filter((id) => this.elOf.has(id));
+    const changed = kept.length !== this.selection.length;
+    this.selection = kept;
+    this.drawOverlay();
+    if (changed) this.onSelection(this.getSelection());
+  }
+
+  // ------------------------------------------------------------ commands
+
+  private run(commands: Command[]): void {
+    if (commands.length === 0) return;
+    const r = this.source.doc.execute(commands.length === 1 ? commands[0]! : { op: "batch", commands });
+    if (!r.ok) console.warn("canvas command failed", r.error);
+  }
+
+  deleteSelection(): void {
+    if (this.selection.length === 0) return;
+    this.run([{ op: "delete", ids: this.selection }]);
+  }
+
+  nudge(dx: number, dy: number): void {
+    this.run(this.selection.map((id) => ({ op: "transform", id, translate: [dx, dy] }) satisfies Command));
+  }
+
+  // ------------------------------------------------------------ geometry
+
+  private screenPoint(e: PointerEvent | MouseEvent): Point {
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  private itemFor(id: NodeId): Item | null {
+    const el = this.elOf.get(id);
+    if (!el) return null;
+    const ctm = el.getScreenCTM();
+    const parent = el.parentElement as unknown as SVGGraphicsElement | null;
+    const parentCtm = parent && "getScreenCTM" in parent ? parent.getScreenCTM() : null;
+    if (!ctm || !parentCtm) return null;
+    let bbox: Rect;
+    try {
+      const b = el.getBBox();
+      bbox = { x: b.x, y: b.y, width: b.width, height: b.height };
+    } catch {
+      return null;
+    }
+    try {
+      return { id, el, original: el.getAttribute("transform"), parentInv: invert(mat(parentCtm)), ctm: mat(ctm), bbox };
+    } catch {
+      return null;
+    }
+  }
+
+  private screenCorners(item: Item): Point[] {
+    return corners(item.bbox).map((p) => apply(item.ctm, p));
+  }
+
+  /** The selectable node for a DOM target: topmost below the root or a layer, or the deepest with Ctrl/Cmd. */
+  private pick(target: EventTarget | null, deep: boolean): NodeId | null {
+    let el = target instanceof Element ? target : null;
+    const chain: NodeId[] = [];
+    while (el && el !== this.svg) {
+      const id = this.nodeOf.get(el);
+      if (id !== undefined && GRAPHIC.has(el.localName)) chain.push(id);
+      el = el.parentElement;
+    }
+    if (chain.length === 0) return null;
+    if (deep) return chain[0]!;
+    const doc = this.source.doc;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const parent = doc.getNode(doc.getNode(chain[i]!)!.parent!)!;
+      if (parent.id === doc.root || isLayer(parent.attrs)) {
+        if (!isLayer(doc.getNode(chain[i]!)!.attrs)) return chain[i]!;
+      }
+    }
+    return chain[0]!;
+  }
+
+  /** Candidates for marquee selection: children of the root and of layers. */
+  private topLevel(): NodeId[] {
+    const doc = this.source.doc;
+    const out: NodeId[] = [];
+    const walk = (id: NodeId) => {
+      for (const c of doc.getNode(id)!.children) {
+        const n = doc.getNode(c)!;
+        if (n.tag === TEXT_TAG || !GRAPHIC.has(n.tag)) continue;
+        if (n.tag === "g" && isLayer(n.attrs)) walk(c);
+        else out.push(c);
+      }
+    };
+    walk(doc.root);
+    return out;
+  }
+
+  // ------------------------------------------------------------- overlay
+
+  private drawOverlay(): void {
+    const o = this.overlay;
+    const origin = o.getBoundingClientRect();
+    const local = (p: Point): Point => ({ x: p.x - origin.left, y: p.y - origin.top });
+    const keep = this.gesture?.kind === "marquee" ? this.gesture.rect : null;
+    o.replaceChildren(...(keep ? [keep] : []));
+    const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
+    if (items.length === 0 || this.gesture?.kind === "draw") return;
+
+    for (const item of items) {
+      const pts = this.screenCorners(item).map(local);
+      o.appendChild(svgEl("polygon", { class: "sel-outline", points: pts.map((p) => `${p.x},${p.y}`).join(" ") }));
+    }
+    // Handles: on the element's own box for one element, on the union for several.
+    const box = items.length === 1 ? this.screenCorners(items[0]!).map(local) : corners(boundsOf(items.flatMap((i) => this.screenCorners(i)))).map(local);
+    const [tl, tr, br, bl] = box as [Point, Point, Point, Point];
+    const at = (fx: number, fy: number): Point => {
+      const top = { x: tl.x + (tr.x - tl.x) * fx, y: tl.y + (tr.y - tl.y) * fx };
+      const bottom = { x: bl.x + (br.x - bl.x) * fx, y: bl.y + (br.y - bl.y) * fx };
+      return { x: top.x + (bottom.x - top.x) * fy, y: top.y + (bottom.y - top.y) * fy };
+    };
+    if (items.length > 1) {
+      o.appendChild(svgEl("polygon", { class: "sel-group", points: box.map((p) => `${p.x},${p.y}`).join(" ") }));
+    }
+    const topMid = at(0.5, 0);
+    const center = at(0.5, 0.5);
+    const len = Math.hypot(topMid.x - center.x, topMid.y - center.y) || 1;
+    const rot = { x: topMid.x + ((topMid.x - center.x) / len) * ROTATE_OFFSET, y: topMid.y + ((topMid.y - center.y) / len) * ROTATE_OFFSET };
+    o.appendChild(svgEl("line", { class: "sel-stem", x1: topMid.x, y1: topMid.y, x2: rot.x, y2: rot.y }));
+    o.appendChild(svgEl("circle", { class: "handle rotate", "data-handle": "rotate", cx: rot.x, cy: rot.y, r: 5 }));
+    for (const h of HANDLES) {
+      const f = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] }[h] as [number, number];
+      const p = at(f[0], f[1]);
+      o.appendChild(svgEl("rect", { class: `handle ${h}`, "data-handle": h, x: p.x - 4, y: p.y - 4, width: 8, height: 8 }));
+    }
+  }
+
+  // ------------------------------------------------------------ pointer
+
+  private pointerDown(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    if (this.textInput) this.commitText();
+    this.host.focus({ preventScroll: true });
+    const p = this.screenPoint(e);
+    const handle = e.target instanceof Element ? e.target.getAttribute("data-handle") : null;
+    if (handle && this.selection.length > 0) {
+      e.preventDefault();
+      this.startHandle(handle, p);
+      return;
+    }
+    if (this._tool === "text") {
+      e.preventDefault();
+      this.openTextInput(p);
+      return;
+    }
+    if (this._tool !== "select") {
+      e.preventDefault();
+      this.startDraw(this._tool, p);
+      return;
+    }
+    const hit = this.pick(e.target, e.ctrlKey || e.metaKey);
+    if (hit) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        this.select(this.selection.includes(hit) ? this.selection.filter((s) => s !== hit) : [...this.selection, hit]);
+        return;
+      }
+      if (!this.selection.includes(hit)) this.select([hit]);
+      const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
+      this.gesture = { kind: "move", start: p, items, moved: false };
+      return;
+    }
+    if (e.target !== this.host && !(e.target instanceof Element && this.svg?.contains(e.target))) return;
+    e.preventDefault();
+    if (!e.shiftKey) this.select([]);
+    const rect = svgEl("rect", { class: "marquee", x: 0, y: 0, width: 0, height: 0 }) as SVGRectElement;
+    this.overlay.appendChild(rect);
+    this.gesture = { kind: "marquee", start: p, additive: e.shiftKey, rect };
+  }
+
+  private startHandle(handle: string, p: Point): void {
+    const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
+    if (items.length === 0) return;
+    const screenBox = boundsOf(items.flatMap((i) => this.screenCorners(i)));
+    if (handle === "rotate") {
+      const center = items.length === 1 ? apply(items[0]!.ctm, { x: items[0]!.bbox.x + items[0]!.bbox.width / 2, y: items[0]!.bbox.y + items[0]!.bbox.height / 2 }) : { x: screenBox.x + screenBox.width / 2, y: screenBox.y + screenBox.height / 2 };
+      this.gesture = { kind: "rotate", center, start: p, items };
+      return;
+    }
+    // One element: resize along its own axes (local space). Several: screen-aligned box.
+    const local = items.length === 1;
+    this.gesture = { kind: "resize", handle: handle as Handle, items, box: local ? items[0]!.bbox : screenBox, local };
+  }
+
+  private startDraw(tool: Exclude<Tool, "select" | "text">, p: Point): void {
+    if (!this.svg) return;
+    const tag = tool === "rect" ? "rect" : tool === "ellipse" ? "ellipse" : "line";
+    const el = svgEl(tag, tool === "line" ? { stroke: DRAW_STYLE.stroke, "stroke-width": "2" } : { ...DRAW_STYLE });
+    this.svg.appendChild(el);
+    this.gesture = { kind: "draw", tool, start: this.toRoot(p), el };
+    this.select([], true);
+  }
+
+  private toRoot(p: Point): Point {
+    const ctm = this.svg?.getScreenCTM();
+    return ctm ? apply(invert(mat(ctm)), p) : p;
+  }
+
+  private pointerMove(e: PointerEvent): void {
+    const g = this.gesture;
+    if (!g) return;
+    const p = this.screenPoint(e);
+    switch (g.kind) {
+      case "move": {
+        const d = { x: p.x - g.start.x, y: p.y - g.start.y };
+        if (!g.moved && Math.hypot(d.x, d.y) < DRAG_THRESHOLD) return;
+        g.moved = true;
+        const constrained = e.shiftKey ? (Math.abs(d.x) > Math.abs(d.y) ? { x: d.x, y: 0 } : { x: 0, y: d.y }) : d;
+        for (const it of g.items) {
+          const v = applyLinear(it.parentInv, constrained);
+          const t: [number, number] = [round(v.x), round(v.y)];
+          it.command = { op: "transform", id: it.id, translate: t };
+          it.preview = join(`translate(${t[0]} ${t[1]})`, it.original);
+        }
+        break;
+      }
+      case "resize": {
+        for (const it of g.items) {
+          if (g.local) {
+            const q = apply(invert(it.ctm), p);
+            const [sx, sy] = resizeScale(g.box, g.handle, q, e.shiftKey).map(roundScale) as [number, number];
+            const a = anchorPoint(g.box, g.handle);
+            const o: [number, number] = [round(a.x), round(a.y)];
+            it.command = { op: "transform", id: it.id, scale: [sx, sy], origin: o, space: "local" };
+            it.preview = join(it.original, `translate(${o[0]} ${o[1]}) scale(${sx} ${sy}) translate(${-o[0]} ${-o[1]})`);
+          } else {
+            const [sx, sy] = resizeScale(g.box, g.handle, p, e.shiftKey).map(roundScale) as [number, number];
+            const a = apply(it.parentInv, anchorPoint(g.box, g.handle));
+            const o: [number, number] = [round(a.x), round(a.y)];
+            it.command = { op: "transform", id: it.id, scale: [sx, sy], origin: o };
+            it.preview = join(`translate(${o[0]} ${o[1]}) scale(${sx} ${sy}) translate(${-o[0]} ${-o[1]})`, it.original);
+          }
+        }
+        break;
+      }
+      case "rotate": {
+        let deg = angleBetween(g.center, g.start, p);
+        if (e.shiftKey) deg = snap(deg, 15);
+        deg = round(deg);
+        for (const it of g.items) {
+          const c = apply(it.parentInv, g.center);
+          const o: [number, number] = [round(c.x), round(c.y)];
+          it.command = { op: "transform", id: it.id, rotate: deg, origin: o };
+          it.preview = join(`rotate(${deg} ${o[0]} ${o[1]})`, it.original);
+        }
+        break;
+      }
+      case "marquee": {
+        const origin = this.overlay.getBoundingClientRect();
+        const r = rectFromPoints(g.start, p);
+        setAttrs(g.rect, { x: r.x - origin.left, y: r.y - origin.top, width: r.width, height: r.height });
+        return;
+      }
+      case "draw": {
+        const q = this.toRoot(p);
+        setAttrs(g.el, drawAttrs(g.tool, g.start, q, e.shiftKey));
+        return;
+      }
+    }
+    for (const it of g.items) {
+      if (it.preview !== undefined) it.el.setAttribute("transform", it.preview);
+    }
+    this.drawOverlay();
+  }
+
+  private pointerUp(e: PointerEvent): void {
+    const g = this.gesture;
+    if (!g) return;
+    this.gesture = null;
+    switch (g.kind) {
+      case "move":
+      case "resize":
+      case "rotate": {
+        const cmds = g.items.map((i) => i.command).filter((c): c is Command => c !== undefined);
+        if (cmds.length === 0) return;
+        this.run(cmds); // re-renders from the model
+        return;
+      }
+      case "marquee": {
+        g.rect.remove();
+        const r = rectFromPoints(g.start, this.screenPoint(e));
+        if (r.width < DRAG_THRESHOLD && r.height < DRAG_THRESHOLD) return;
+        const inside = this.topLevel().filter((id) => {
+          const it = this.itemFor(id);
+          return it !== null && contains(r, boundsOf(this.screenCorners(it)));
+        });
+        this.select(g.additive ? [...this.selection, ...inside] : inside);
+        return;
+      }
+      case "draw": {
+        g.el.remove();
+        const q = this.toRoot(this.screenPoint(e));
+        const attrs = drawAttrs(g.tool, g.start, q, e.shiftKey);
+        const size = g.tool === "line" ? Math.hypot(q.x - g.start.x, q.y - g.start.y) : Math.min(Number(attrs.width ?? attrs.rx), Number(attrs.height ?? attrs.ry));
+        if (!(size > 0.5)) return;
+        const tag = g.tool === "rect" ? "rect" : g.tool === "ellipse" ? "ellipse" : "line";
+        const style: Record<string, string> = g.tool === "line" ? { stroke: DRAW_STYLE.stroke, "stroke-width": "2" } : { ...DRAW_STYLE };
+        const r = this.source.doc.execute({ op: "add", tag, attrs: { ...stringify(attrs), ...style } });
+        if (r.ok) {
+          this.setTool("select");
+          this.select([r.result.id]);
+        }
+        return;
+      }
+    }
+  }
+
+  cancelGesture(): boolean {
+    const g = this.gesture;
+    if (!g) return false;
+    this.gesture = null;
+    if (g.kind === "marquee") g.rect.remove();
+    else if (g.kind === "draw") g.el.remove();
+    else for (const it of g.items) restore(it);
+    this.drawOverlay();
+    return true;
+  }
+
+  // ---------------------------------------------------------------- text
+
+  private openTextInput(p: Point): void {
+    const at = this.toRoot(p);
+    const input = document.createElement("input");
+    input.className = "text-input";
+    input.placeholder = "Type, then Enter";
+    const hostBox = this.host.parentElement!.getBoundingClientRect();
+    input.style.left = `${p.x - hostBox.left}px`;
+    input.style.top = `${p.y - hostBox.top - 14}px`;
+    input.dataset.x = String(round(at.x));
+    input.dataset.y = String(round(at.y));
+    this.host.parentElement!.appendChild(input);
+    this.textInput = input;
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") this.commitText();
+      if (e.key === "Escape") this.closeText();
+    });
+    input.addEventListener("blur", () => this.commitText());
+    setTimeout(() => input.focus(), 0);
+  }
+
+  private commitText(): void {
+    const input = this.textInput;
+    if (!input) return;
+    const text = input.value;
+    this.closeText();
+    if (text.trim() === "") return;
+    // Two commands, one undo step.
+    const doc = this.source.doc;
+    const tx = doc.beginTransaction();
+    const added = doc.execute({ op: "add", tag: "text", attrs: { x: input.dataset.x!, y: input.dataset.y!, "font-family": "sans-serif", "font-size": "16" } });
+    if (added.ok && doc.execute({ op: "setText", id: added.result.id, text }).ok) {
+      tx.commit();
+      this.setTool("select");
+      this.select([added.result.id]);
+    } else {
+      tx.rollback();
+    }
+  }
+
+  private closeText(): void {
+    const input = this.textInput;
+    this.textInput = null;
+    input?.remove();
+  }
+
+  // ------------------------------------------------------------ keyboard
+
+  private keyDown(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      if (!this.cancelGesture()) this.select([]);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      this.deleteSelection();
+      return;
+    }
+    const step = e.shiftKey ? 10 : 1;
+    const arrows: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    const d = arrows[e.key];
+    if (d && this.selection.length > 0) {
+      e.preventDefault();
+      this.nudge(d[0], d[1]);
+      return;
+    }
+    const tools: Record<string, Tool> = { v: "select", r: "rect", e: "ellipse", l: "line", t: "text" };
+    const tool = tools[e.key.toLowerCase()];
+    if (tool) this.setTool(tool);
+  }
+}
+
+/** Scale factors with 4 decimals, never 0. */
+function roundScale(s: number): number {
+  const r = Math.round(s * 1e4) / 1e4;
+  return r === 0 ? Math.sign(s) * 1e-4 : r;
+}
+
+function isLayer(attrs: Record<string, string>): boolean {
+  return attrs["inkscape:groupmode"] === "layer";
+}
+
+function join(a: string | null | undefined, b: string | null | undefined): string {
+  return [a, b].filter((s) => s && s.trim() !== "").join(" ");
+}
+
+function restore(it: Item): void {
+  if (it.original === null) it.el.removeAttribute("transform");
+  else it.el.setAttribute("transform", it.original);
+}
+
+function svgEl(tag: string, attrs: Record<string, string | number>): SVGElement {
+  const el = document.createElementNS(SVG_NS, tag) as SVGElement;
+  setAttrs(el, attrs);
+  return el;
+}
+
+function setAttrs(el: Element, attrs: Record<string, string | number>): void {
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+}
+
+function stringify(attrs: Record<string, number>): Record<string, string> {
+  return Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)]));
+}
+
+/** Geometry attributes for a shape drawn from `a` to `b` in root user space. */
+function drawAttrs(tool: "rect" | "ellipse" | "line", a: Point, b: Point, constrain: boolean): Record<string, number> {
+  if (tool === "line") {
+    let end = b;
+    if (constrain) {
+      const ang = snap(Math.atan2(b.y - a.y, b.x - a.x), Math.PI / 4);
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      end = { x: a.x + Math.cos(ang) * len, y: a.y + Math.sin(ang) * len };
+    }
+    return { x1: round(a.x), y1: round(a.y), x2: round(end.x), y2: round(end.y) };
+  }
+  const r = rectFromPoints(a, b, constrain);
+  if (tool === "rect") return { x: round(r.x), y: round(r.y), width: round(r.width), height: round(r.height) };
+  return { cx: round(r.x + r.width / 2), cy: round(r.y + r.height / 2), rx: round(r.width / 2), ry: round(r.height / 2) };
+}
+

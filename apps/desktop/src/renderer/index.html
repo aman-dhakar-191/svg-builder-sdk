@@ -14,7 +14,17 @@
     <main class="app">
       <section class="pane code-pane" aria-label="SVG code"><div id="code"></div></section>
       <section class="pane canvas-pane" aria-label="Canvas">
-        <div id="canvas"></div>
+        <div class="toolbar" role="toolbar" aria-label="Tools">
+          <button data-tool="select" title="Select (V)">Select</button>
+          <button data-tool="rect" title="Rectangle (R)">Rect</button>
+          <button data-tool="ellipse" title="Ellipse (E)">Ellipse</button>
+          <button data-tool="line" title="Line (L)">Line</button>
+          <button data-tool="text" title="Text (T)">Text</button>
+        </div>
+        <div class="stage">
+          <div id="canvas" tabindex="0" data-tool="select"></div>
+          <svg id="overlay" aria-hidden="true"></svg>
+        </div>
         <div id="status" role="status"></div>
       </section>
     </main>

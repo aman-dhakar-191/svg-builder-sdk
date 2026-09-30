@@ -336,3 +336,18 @@ describe("replace", () => {
     expect(expectNoChange(doc, { op: "replace", tree: { tag: "svg", attrs: { x: 1 }, children: [] } }).code).toBe("INVALID_ATTR");
   });
 });
+
+describe("transform space", () => {
+  it('"local" appends ops so they act along the element\'s own axes', () => {
+    const r = add("rect", { width: "10", height: "20", transform: "rotate(30)" });
+    expectRoundTrip(doc, { op: "transform", id: r, scale: [2, 1], origin: [0, 0], space: "local" });
+    expect(doc.getNode(r)!.attrs.transform).toBe("rotate(30) scale(2 1)");
+    ok(doc.execute({ op: "transform", id: r, rotate: 90, origin: "center", space: "local" }));
+    expect(doc.getNode(r)!.attrs.transform).toBe("rotate(30) scale(2 1) rotate(90 5 10)");
+  });
+
+  it("rejects an unknown space", () => {
+    const r = add("rect");
+    expect(expectNoChange(doc, { op: "transform", id: r, rotate: 1, space: "world" }).code).toBe("INVALID_COMMAND");
+  });
+});

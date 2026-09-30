@@ -70,3 +70,14 @@ describe("setText (code pane edits)", () => {
     expect(s.doc.canUndo()).toBe(false);
   });
 });
+
+describe("nodeAt", () => {
+  it("finds the deepest element at an offset", () => {
+    const s = open(`<svg>\n  <g>\n    <rect/>\n  </g>\n</svg>`);
+    const at = (needle: string) => s.nodeAt(s.text.indexOf(needle));
+    expect(at("<rect")).toBe(find(s, "rect"));
+    expect(at("<g>")).toBe(find(s, "g"));
+    expect(at("\n    <rect")).toBe(find(s, "g"));
+    expect(at("<svg")).toBe(s.doc.root);
+  });
+});

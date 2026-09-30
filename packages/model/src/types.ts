@@ -39,6 +39,13 @@ export type Command =
       scale?: Vec2;
       rotate?: number;
       origin?: "center" | Vec2;
+      /**
+       * "parent" (default): apply in the parent's coordinates, after the existing
+       * transform. "local": apply in the element's own coordinates, before it
+       * (e.g. resizing a rotated shape along its own axes). `origin` is in the
+       * same space.
+       */
+      space?: "parent" | "local";
     }
   | { op: "setText"; id: NodeId; text: string }
   | { op: "batch"; commands: Command[] }
