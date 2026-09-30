@@ -25,8 +25,9 @@ nsis:
   # Wizard: welcome, location, options, ready, install, finish (build/installer.nsh).
   oneClick: false
   allowToChangeInstallationDirectory: true
-  # Installs to C:\Program Files\SVG Editor (asks for admin rights).
-  perMachine: true
+  # Current user only (build/installer.nsh forces it): installs to
+  # %LOCALAPPDATA%\Programs\SVG Editor and never asks for admin rights.
+  perMachine: false
   include: build/installer.nsh
   shortcutName: SVG Editor
 mac:
