@@ -53,9 +53,10 @@ export function reconcile(doc: SvgDocument, root: ParsedElement): ReconcileResul
   }
 
   // 3. align children of matched pairs
+  let head = 0; // a read index: shift() is O(n) per call on long queues
   const drain = () => {
-    while (queue.length > 0) {
-      const [o, n] = queue.shift()!;
+    while (head < queue.length) {
+      const [o, n] = queue[head++]!;
       const oc = o.children.filter((c) => !matchedOld.has(c.id));
       const nc = n.children.filter((c) => c.id === undefined);
       for (const [i, j] of align(oc, nc)) match(oc[i]!, nc[j]!);
@@ -103,19 +104,89 @@ function signature(n: TreeNode | InputTree): string {
   return JSON.stringify([n.tag, n.attrs, n.text ?? null, n.children.map(signature)]);
 }
 
+/** Attributes as "name=value" strings, computed once per node for the alignment. */
+const attrKeys = new WeakMap<object, Set<string>>();
+function keysOf(n: TreeNode | InputTree): Set<string> {
+  let k = attrKeys.get(n);
+  if (!k) {
+    k = new Set(Object.entries(n.attrs).map(([a, v]) => `${a}=${v}`));
+    attrKeys.set(n, k);
+  }
+  return k;
+}
+
 function similarity(a: TreeNode, b: InputTree): number {
   if (a.tag === TEXT_TAG) return a.text === b.text ? 1 : 0.5;
-  const pa = Object.entries(a.attrs).map(([k, v]) => `${k}=${v}`);
-  const pb = new Set(Object.entries(b.attrs).map(([k, v]) => `${k}=${v}`));
-  const shared = pa.filter((p) => pb.has(p)).length;
-  const union = pa.length + pb.size - shared;
+  const pa = keysOf(a);
+  const pb = keysOf(b);
+  let shared = 0;
+  for (const p of pa) if (pb.has(p)) shared++;
+  const union = pa.size + pb.size - shared;
   const attrScore = union === 0 ? 1 : shared / union;
   const childScore = a.children.length === b.children.length ? 0.1 : 0;
   return attrScore + childScore;
 }
 
-/** Order-preserving alignment maximizing total similarity; same tag required. */
+/** Same element as far as its own tag, attributes and text go (children are aligned later). */
+function same(a: TreeNode, b: InputTree): boolean {
+  if (a.tag !== b.tag || (a.text ?? null) !== (b.text ?? null) || a.children.length !== b.children.length) return false;
+  const ka = keysOf(a);
+  const kb = keysOf(b);
+  if (ka.size !== kb.size) return false;
+  for (const k of ka) if (!kb.has(k)) return false;
+  return true;
+}
+
+/** Above this many old x new pairs, the middle is matched linearly instead of optimally. */
+const MAX_CELLS = 250_000;
+
+/**
+ * Order-preserving alignment of two child lists; same tag required. Identical runs at the
+ * start and end match directly (a code edit usually changes one spot); the rest is aligned
+ * for the best total similarity, or, when it is huge, matched in order by tag.
+ */
 function align(oldKids: TreeNode[], newKids: InputTree[]): [number, number][] {
+  const n = oldKids.length;
+  const m = newKids.length;
+  if (n === 0 || m === 0) return [];
+  const pairs: [number, number][] = [];
+  let start = 0;
+  while (start < n && start < m && same(oldKids[start]!, newKids[start]!)) {
+    pairs.push([start, start]);
+    start++;
+  }
+  let endO = n;
+  let endN = m;
+  while (endO > start && endN > start && same(oldKids[endO - 1]!, newKids[endN - 1]!)) {
+    endO--;
+    endN--;
+  }
+  const midO = oldKids.slice(start, endO);
+  const midN = newKids.slice(start, endN);
+  const mid = midO.length * midN.length > MAX_CELLS ? alignInOrder(midO, midN) : alignBest(midO, midN);
+  for (const [i, j] of mid) pairs.push([start + i, start + j]);
+  for (let k = 0; endO + k < n; k++) pairs.push([endO + k, endN + k]);
+  return pairs;
+}
+
+/** Linear fallback for big rewrites: each new child takes the next old child with its tag, a little way ahead. */
+function alignInOrder(oldKids: TreeNode[], newKids: InputTree[]): [number, number][] {
+  const pairs: [number, number][] = [];
+  let i = 0;
+  for (let j = 0; j < newKids.length && i < oldKids.length; j++) {
+    for (let k = i; k < Math.min(oldKids.length, i + 32); k++) {
+      if (oldKids[k]!.tag === newKids[j]!.tag) {
+        pairs.push([k, j]);
+        i = k + 1;
+        break;
+      }
+    }
+  }
+  return pairs;
+}
+
+/** Order-preserving alignment maximizing total similarity; same tag required. */
+function alignBest(oldKids: TreeNode[], newKids: InputTree[]): [number, number][] {
   const n = oldKids.length;
   const m = newKids.length;
   if (n === 0 || m === 0) return [];
