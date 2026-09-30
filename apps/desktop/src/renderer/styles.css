@@ -1,0 +1,33 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --panel: #f6f7f9;
+  --border: #d9dce1;
+  --text: #1f2328;
+  --error: #c62828;
+  --checker: #eceef1;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1f22;
+    --panel: #25272b;
+    --border: #3a3d42;
+    --text: #e6e6e6;
+    --error: #ff6b6b;
+    --checker: #2c2e33;
+  }
+}
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; }
+.app { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); height: 100vh; }
+.pane { min-width: 0; min-height: 0; position: relative; }
+.code-pane { border-right: 1px solid var(--border); }
+#code, #code .cm-editor { height: 100%; }
+.canvas-pane { background: var(--panel); display: flex; flex-direction: column; }
+#canvas {
+  flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 24px;
+  background-image: conic-gradient(var(--checker) 25%, transparent 0 50%, var(--checker) 0 75%, transparent 0);
+  background-size: 16px 16px;
+}
+#canvas > svg { max-width: 100%; max-height: 100%; background: transparent; }
+#status { padding: 6px 12px; border-top: 1px solid var(--border); min-height: 18px; font-size: 12px; }
+#status.error { color: var(--error); }

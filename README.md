@@ -10,7 +10,7 @@ packages/
   parser/   SVG <-> model with source ranges, minimal patches, ID reconcile (step 2)
   sdk/      public API wrapping the model                                (step 6, not started)
 apps/
-  desktop/  Electron app                                                 (step 3, not started)
+  desktop/  Electron app: code pane + live canvas                          (step 3)
 ```
 
 ## Building
@@ -22,4 +22,6 @@ Locally (Node >= 22.12, pnpm via corepack):
 ```sh
 pnpm install
 pnpm typecheck && pnpm test && pnpm build
+pnpm --filter @svg-editor/desktop start      # run the app
+pnpm --filter @svg-editor/desktop test:e2e   # end-to-end (needs a display; CI uses xvfb-run)
 ```

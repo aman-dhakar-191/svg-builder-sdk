@@ -30,3 +30,15 @@
 | ID reconciliation | `reconcile(doc, parse)`: root, then unique `id` attributes anywhere, then per-parent alignment (same tag, attribute/text similarity), then identical subtrees anywhere (cut/paste). Unmatched nodes get new IDs. | Wiring code edits into the model as one undoable step is step 3. |
 | Corpus | `packages/parser/test/corpus/` holds hand-written files that reproduce each exporter's quirks (Inkscape namespaces and multi-line attributes, Figma clip paths, Illustrator DOCTYPE entities with CRLF and tabs, odd hand-written formatting). They are **not** real exports. | Drop real exports into that folder; every `.svg` there is picked up by the round-trip and random-edit tests automatically. |
 | Dependency | `@types/node` (dev only) so tests can read the corpus from disk. Parser `src` is typechecked without Node types. | |
+
+## Phase 1, step 3: app shell, code pane, live render
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Build | electron-vite 5 (Vite 7; electron-vite does not support Vite 8 yet). Main and preload are bundled as CommonJS (`.cjs`). | A sandboxed preload must be CommonJS. |
+| Security | `contextIsolation`, `sandbox`, no `nodeIntegration`; navigation and new windows blocked; CSP with `script-src 'self'`; preload exposes only `window.desktop` (platform for now). | Plan section 3. Tested end-to-end (no `require`/`process` in the renderer). |
+| Rendering | Canvas DOM is built from the model tree, not from raw text. `<script>`, `on*` attributes and `javascript:` links are dropped; elements in foreign namespaces (editor metadata) are skipped. A `WeakMap` maps DOM elements to node IDs for step 4, without adding attributes to the drawing. | Re-renders the whole tree on each change; fine for now, revisit with large files. |
+| Code -> model | Typing is debounced 150 ms, then `SourceDocument.setText`: parse, reconcile IDs, one `replace` command (one undo step). Parse errors keep the last good model and render and show a gutter marker plus "line, column: message" in the status bar. | |
+| Undo | CodeMirror has no history; Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y go to the model (pending typing is flushed first). | Plan rule: the model owns history. |
+| UI framework | None yet (plain TypeScript). | Still an open decision in the plan; decide before step 4/5 adds panels. |
+| E2E tests | Playwright drives the built Electron app under Xvfb in CI. | New dev dependencies: `@playwright/test`, `electron`, `electron-vite`, `vite`, CodeMirror 6 packages. |
