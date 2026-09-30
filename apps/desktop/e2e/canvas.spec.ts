@@ -138,11 +138,11 @@ test("cursor in code selects the node on the canvas", async () => {
 for (const [tool, tag] of [["rect", "rect"], ["ellipse", "ellipse"], ["line", "line"]] as const) {
   test(`${tool} tool draws a ${tag} with one command`, async () => {
     const original = await code();
-    await page.locator(`.toolbar [data-tool="${tool}"]`).click();
+    await page.locator(`button[data-tool="${tool}"]`).click();
     const box = (await page.locator("#canvas svg").boundingBox())!;
     await drag({ x: box.x + box.width * 0.55, y: box.y + box.height * 0.6 }, { x: box.x + box.width * 0.8, y: box.y + box.height * 0.9 });
     await expect(page.locator(`#canvas svg > ${tag}`)).toHaveCount(tag === "rect" ? 2 : 1);
-    await expect(page.locator(".toolbar [data-tool=select]")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("button[data-tool=select]")).toHaveAttribute("aria-pressed", "true");
     expect(await code()).toContain(`<${tag} `);
     await undoRestores(original);
   });
@@ -150,7 +150,7 @@ for (const [tool, tag] of [["rect", "rect"], ["ellipse", "ellipse"], ["line", "l
 
 test("text tool adds a text element with its content in one undo step", async () => {
   const original = await code();
-  await page.locator('.toolbar [data-tool="text"]').click();
+  await page.locator('button[data-tool="text"]').click();
   const box = (await page.locator("#canvas svg").boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.8);
   await page.locator(".text-input").fill("Typed on canvas");

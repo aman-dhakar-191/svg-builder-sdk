@@ -186,3 +186,17 @@
 | AI | Tools `combine_shapes`, `simplify_path`; the prompt suggests building outlines from simple shapes (a crescent = circle minus circle). | The logo test showed the AI faking shapes by stacking circles. |
 | Main process | Imports `@svg-editor/ai-tools/definitions` (tool schemas, prompt, validator; no SDK). Importing the full package pulled paper.js and its Node shims (canvas, jsdom) into the main bundle and crashed the app at startup. An e2e test checks the main bundle needs only Electron and Node built-ins; `ui-parity.test.ts` checks the import. | |
 | Deferred | Node add/delete and segment types: to the final polish (plan, Step 5). | User's call. |
+
+## Redesign: editor and agent modes (Svelte)
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Framework | The renderer is Svelte 5 (runes) with `@sveltejs/vite-plugin-svelte`; icons from `@lucide/svelte` (per-icon imports), fonts Onest and Fragment Mono bundled with `@fontsource` (no network). The canvas engine (`canvas.ts`, `viewport.ts`, `render.ts`) is unchanged plain TS; Svelte components drive it through one `session` store. | User's choice after an approved mockup. The old hand-built DOM code had grown past what was easy to change. |
+| Type checking | `svelte-check --tsgo --fail-on-warnings`. svelte-check does not accept TypeScript 7 yet, so the desktop package pins `typescript@~6` for it and gets TS 7 (`@typescript/native`) for `--tsgo`; the root stays on TS 7. | Drop the pin when svelte-check supports TS 7. |
+| Modes | **Editor** (rail, code, canvas, inspector) and **Agent** (chat, canvas) over the same canvas. The other mode's panels are hidden, not unmounted, so the code editor, chat scroll and drafts survive a switch. The switch uses a View Transition. | Mockup. |
+| Title bar | Custom (`titleBarStyle: "hidden"`, native window buttons via `titleBarOverlay` on Windows/Linux, traffic lights on macOS), coloured to match the theme. The native menu is kept for the OS but its accelerators are not registered: the page owns every shortcut, so the palette, menus and keys agree. | |
+| Motion | Short (120–220 ms) ease-out transitions on dialogs, menus, tabs, the mode switch and turn steps; nothing loops except the "working" indicators. `prefers-reduced-motion` sets every duration to 0 and skips the View Transition. | User asked for careful UX and animation. |
+| Recent files | Up to 8 in `userData/recent.json`. The page only sees an id, name, folder name and time; opening goes through the main process by id, so the page still never handles paths. | Same rule as Open/Save. |
+| Inspector | Common properties first (X/Y scrub fields, fill/stroke with the document's colours, stroke width, opacity, text); every raw attribute stays under **All attributes**. X/Y move with `translateInRoot`, like a canvas drag. | Raw attribute lists were the whole panel before; hard to use. |
+| Agent composer | Enter sends, Shift+Enter is a new line; Send is disabled while empty and replaced by Stop during a turn. A missing key opens Settings with the message. | |
+

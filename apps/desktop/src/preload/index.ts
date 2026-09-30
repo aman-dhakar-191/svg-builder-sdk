@@ -16,6 +16,9 @@ const api: DesktopApi = {
   onMenu: (listener: (action: MenuAction) => void): void => {
     ipcRenderer.on("menu", (_e, action: MenuAction) => listener(action));
   },
+  recentFiles: () => ipcRenderer.invoke("file:recent"),
+  openRecent: (id: number) => ipcRenderer.invoke("file:openRecent", id),
+  setTitleBarTheme: (theme: "light" | "dark") => ipcRenderer.send("window:titleBarTheme", theme),
   ai: {
     getSettings: () => ipcRenderer.invoke("ai:getSettings"),
     saveSettings: (update: AiSettingsUpdate) => ipcRenderer.invoke("ai:saveSettings", update),

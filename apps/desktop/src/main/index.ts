@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { registerAiIpc } from "./ai/index.js";
 
 // Tests point userData at a temp dir so settings never touch the real profile.
@@ -51,23 +51,82 @@ async function saveTo(win: BrowserWindow, text: string, askPath: boolean): Promi
     path = r.filePath;
   }
   await writeFile(path, text, "utf8");
+  void rememberRecent(path);
   s.path = path;
   s.dirty = false;
   updateTitle(win);
   return { saved: true, name: basename(path) };
 }
 
-ipcMain.handle("file:open", async (e) => {
-  const win = senderWindow(e);
-  const r = await dialog.showOpenDialog(win, { properties: ["openFile"], filters: SVG_FILTER });
-  if (r.canceled || !r.filePaths[0]) return null;
-  const path = r.filePaths[0];
+async function openPath(win: BrowserWindow, path: string): Promise<{ name: string; text: string }> {
   const text = await readFile(path, "utf8");
   const s = stateOf(win);
   s.path = path;
   s.dirty = false;
   updateTitle(win);
+  void rememberRecent(path);
   return { name: basename(path), text };
+}
+
+ipcMain.handle("file:open", async (e) => {
+  const win = senderWindow(e);
+  const r = await dialog.showOpenDialog(win, { properties: ["openFile"], filters: SVG_FILTER });
+  if (r.canceled || !r.filePaths[0]) return null;
+  return openPath(win, r.filePaths[0]);
+});
+
+// ------------------------------------------------------------ recent files
+// Paths stay here: the renderer gets names and ids, and opens by id.
+
+interface Recent {
+  path: string;
+  openedAt: number;
+}
+const RECENT_MAX = 8;
+const recentFile = () => join(app.getPath("userData"), "recent.json");
+let recentIds = new Map<number, string>();
+
+async function loadRecent(): Promise<Recent[]> {
+  try {
+    const list = JSON.parse(await readFile(recentFile(), "utf8")) as Recent[];
+    return Array.isArray(list) ? list.filter((r) => typeof r.path === "string" && typeof r.openedAt === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function rememberRecent(path: string): Promise<void> {
+  const list = (await loadRecent()).filter((r) => r.path !== path);
+  list.unshift({ path, openedAt: Date.now() });
+  await writeFile(recentFile(), JSON.stringify(list.slice(0, RECENT_MAX)), "utf8").catch(() => {});
+}
+
+ipcMain.handle("file:recent", async () => {
+  const list = await loadRecent();
+  recentIds = new Map(list.map((r, i) => [i + 1, r.path]));
+  return list.map((r, i) => ({ id: i + 1, name: basename(r.path), folder: basename(dirname(r.path)), openedAt: r.openedAt }));
+});
+
+ipcMain.handle("file:openRecent", async (e, id: unknown) => {
+  const path = typeof id === "number" ? recentIds.get(id) : undefined;
+  if (!path) return null;
+  try {
+    return await openPath(senderWindow(e), path);
+  } catch {
+    return null; // moved or deleted
+  }
+});
+
+// ------------------------------------------------------------ title bar
+
+/** Window buttons drawn over the custom title bar (Windows, Linux); colours follow the app theme. */
+const TITLE_BAR = { light: { color: "#ffffff", symbolColor: "#14191c" }, dark: { color: "#141a1e", symbolColor: "#e4eaed" } };
+const TITLE_BAR_HEIGHT = 44;
+
+ipcMain.on("window:titleBarTheme", (e, theme: unknown) => {
+  if (process.platform === "darwin" || (theme !== "light" && theme !== "dark")) return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  win?.setTitleBarOverlay({ ...TITLE_BAR[theme], height: TITLE_BAR_HEIGHT });
 });
 
 ipcMain.handle("file:save", (e, text: string) => saveTo(senderWindow(e), text, false));
@@ -103,7 +162,15 @@ ipcMain.on("window:close", (e) => {
   win.close();
 });
 
-/** Menu items only forward to the renderer, which owns the document. */
+/**
+ * Menu items only forward to the renderer, which owns the document. The
+ * renderer also owns keyboard shortcuts (one place, every platform, also with
+ * the custom title bar); menus only display them.
+ */
+function item(label: string, action: string, accelerator?: string): MenuItemConstructorOptions {
+  return { label, click: send(action), ...(accelerator ? { accelerator, registerAccelerator: false } : {}) };
+}
+
 function send(action: string) {
   return (_item: Electron.MenuItem, win: Electron.BaseWindow | undefined): void => {
     if (win instanceof BrowserWindow) win.webContents.send("menu", action);
@@ -111,45 +178,32 @@ function send(action: string) {
 }
 
 function buildMenu(): void {
-  const file: MenuItemConstructorOptions = {
-    label: "File",
-    submenu: [
-      { label: "New", accelerator: "CmdOrCtrl+N", click: send("new") },
-      { label: "Open…", accelerator: "CmdOrCtrl+O", click: send("open") },
-      { type: "separator" },
-      { label: "Save", accelerator: "CmdOrCtrl+S", click: send("save") },
-      { label: "Save As…", accelerator: "CmdOrCtrl+Shift+S", click: send("saveAs") },
-      { label: "Export PNG…", click: send("exportPng") },
-      { type: "separator" },
-      { role: "quit" },
-    ],
-  };
-  const view: MenuItemConstructorOptions = {
-    label: "View",
-    submenu: [
-      { label: "Zoom In", accelerator: "CmdOrCtrl+=", click: send("zoomIn") },
-      { label: "Zoom Out", accelerator: "CmdOrCtrl+-", click: send("zoomOut") },
-      { label: "Actual Size", accelerator: "CmdOrCtrl+1", click: send("zoom100") },
-      { label: "Fit", accelerator: "CmdOrCtrl+0", click: send("zoomFit") },
-      { type: "separator" },
-      { label: "Show Grid", accelerator: "CmdOrCtrl+'", click: send("toggleGrid") },
-      { label: "Snap to Grid", accelerator: "CmdOrCtrl+Shift+'", click: send("toggleSnap") },
-      { type: "separator" },
-      { role: "toggleDevTools" },
-    ],
-  };
-  const debug: MenuItemConstructorOptions = {
-    label: "Debug",
-    submenu: [{ label: "Simulate AI Turn (tests the editor lock)", click: send("simulateAiTurn") }],
-  };
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === "darwin" ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
-      file,
-      // Undo/redo belong to the document model, handled in the renderer.
+      {
+        label: "File",
+        submenu: [
+          item("New", "new", "CmdOrCtrl+N"),
+          item("Open…", "open", "CmdOrCtrl+O"),
+          item("Open Recent…", "startScreen"),
+          { type: "separator" },
+          item("Save", "save", "CmdOrCtrl+S"),
+          item("Save As…", "saveAs", "CmdOrCtrl+Shift+S"),
+          item("Export PNG…", "exportPng"),
+          { type: "separator" },
+          item("Settings…", "settings", "CmdOrCtrl+,"),
+          { type: "separator" },
+          { role: "quit" },
+        ],
+      },
       {
         label: "Edit",
         submenu: [
+          // Undo/redo belong to the document model.
+          item("Undo", "undo", "CmdOrCtrl+Z"),
+          item("Redo", "redo", "CmdOrCtrl+Shift+Z"),
+          { type: "separator" },
           { role: "cut" },
           { role: "copy" },
           { role: "paste" },
@@ -159,20 +213,36 @@ function buildMenu(): void {
       {
         label: "Path",
         submenu: [
-          { label: "Convert to Path", accelerator: "CmdOrCtrl+Shift+C", click: send("convertToPath") },
-          { label: "Edit Path Nodes", click: send("editNodes") },
+          item("Convert to Path", "convertToPath", "CmdOrCtrl+Shift+C"),
+          item("Edit Path Nodes", "editNodes"),
           { type: "separator" },
           // Bottom to top in the stacking order, like Inkscape; no shortcuts (Ctrl +/- zoom).
-          { label: "Union", click: send("union") },
-          { label: "Subtract (bottom minus the others)", click: send("subtract") },
-          { label: "Intersect", click: send("intersect") },
-          { label: "Exclude", click: send("exclude") },
+          item("Union", "union"),
+          item("Subtract (bottom minus the others)", "subtract"),
+          item("Intersect", "intersect"),
+          item("Exclude", "exclude"),
           { type: "separator" },
-          { label: "Simplify", accelerator: "CmdOrCtrl+L", click: send("simplify") },
+          item("Simplify", "simplify", "CmdOrCtrl+L"),
         ],
       },
-      view,
-      debug,
+      {
+        label: "View",
+        submenu: [
+          item("Editor / Agent", "toggleMode", "CmdOrCtrl+E"),
+          item("Command Palette…", "commandPalette", "CmdOrCtrl+K"),
+          { type: "separator" },
+          item("Zoom In", "zoomIn", "CmdOrCtrl+="),
+          item("Zoom Out", "zoomOut", "CmdOrCtrl+-"),
+          item("Actual Size", "zoom100", "CmdOrCtrl+1"),
+          item("Fit", "zoomFit", "CmdOrCtrl+0"),
+          { type: "separator" },
+          item("Show Grid", "toggleGrid", "CmdOrCtrl+'"),
+          item("Snap to Grid", "toggleSnap", "CmdOrCtrl+Shift+'"),
+          { type: "separator" },
+          { role: "toggleDevTools" },
+        ],
+      },
+      { label: "Debug", submenu: [item("Simulate AI Turn (tests the editor lock)", "simulateAiTurn")] },
       { role: "windowMenu" },
     ]),
   );
@@ -184,7 +254,16 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
     height: 860,
+    minWidth: 900,
+    minHeight: 560,
     title: "SVG Editor",
+    // The app draws its own title bar (menus, Editor/Agent switch); the OS draws the window buttons over it.
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin"
+      ? { trafficLightPosition: { x: 14, y: 14 } }
+      : { titleBarOverlay: { ...TITLE_BAR.light, height: TITLE_BAR_HEIGHT } }),
+    backgroundColor: "#eef1f2",
+    show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -194,6 +273,7 @@ function createWindow(): void {
     },
   });
   updateTitle(win);
+  win.once("ready-to-show", () => win.show()); // no white flash before the first paint
   win.on("page-title-updated", (e) => e.preventDefault());
 
   win.webContents.setWindowOpenHandler(({ url }) => {

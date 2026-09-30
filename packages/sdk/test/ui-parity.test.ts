@@ -173,6 +173,22 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
       expect(ed.doc.simplify(p, { tolerance: 2 }).nodes.after).toBeLessThan(50);
     },
   },
+  {
+    ui: "Inspector: X / Y fields, Align buttons",
+    sdk: "doc.translateInRoot(id, [dx, dy])",
+    run: (ed) => {
+      ed.doc.translateInRoot(byAttr(ed, "c"), [5, 0]);
+      expect(ed.doc.getBBox(byAttr(ed, "c"), "root").x).toBe(125);
+    },
+  },
+  {
+    ui: "Layers: show / hide",
+    sdk: 'doc.set(id, { display: "none" | null })',
+    run: (ed) => {
+      ed.doc.set(byAttr(ed, "a"), { display: "none" });
+      expect(ed.doc.getNode(byAttr(ed, "a")).attrs.display).toBe("none");
+    },
+  }
 ];
 
 /** UI features that change only the view, not the document. Nothing to expose in the SDK. */
@@ -181,6 +197,10 @@ const VIEW_ONLY: Record<string, string> = {
   zoomOut: "zoom level",
   zoom100: "zoom level",
   zoomFit: "zoom level",
+  toggleMode: "switches between the Editor and Agent layouts",
+  commandPalette: "opens a searchable list of the other actions",
+  settings: "app settings (AI model, theme, grid)",
+  startScreen: "opens the start screen; its actions are New and Open",
   toggleGrid: "grid display",
   toggleSnap: "snapping only rounds coordinates the caller then passes to doc.add / doc.transform",
   select: "the select tool picks a mode for pointer input",
@@ -199,6 +219,8 @@ const MAPPED: Record<string, string> = {
   line: "Rect / ellipse / line tools",
   text: "Text tool",
   simulateAiTurn: "AI turn / Debug > Simulate AI turn (editor locked)",
+  undo: "Undo / redo",
+  redo: "Undo / redo",
   convertToPath: "Convert to Path",
   editNodes: "Drag path nodes and handles (node editing)",
   union: "Path > Union / Subtract / Intersect / Exclude",
@@ -209,13 +231,21 @@ const MAPPED: Record<string, string> = {
 };
 
 describe("UI cannot bypass the SDK", () => {
-  const renderer = readdirSync(new URL("renderer/", app)).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  // Every renderer source, Svelte components included (their imports are indented inside <script>).
+  const renderer = (readdirSync(new URL("renderer/", app), { recursive: true }) as string[])
+    .map((f) => f.replace(/\\/g, "/"))
+    .filter((f) => /\.(ts|svelte)$/.test(f) && !f.endsWith(".test.ts") && !f.endsWith(".d.ts"));
+
+  it("found the renderer's Svelte components", () => {
+    expect(renderer).toContain("App.svelte");
+    expect(renderer.filter((f) => f.endsWith(".svelte")).length).toBeGreaterThan(10);
+  });
 
   it.each(renderer)("renderer/%s imports model and parser for types only", (file) => {
     const src = read(`renderer/${file}`);
-    const runtime = [...src.matchAll(/^import\s+(?!type\b)[^;]*from\s+"(@svg-editor\/(?:model|parser))"/gm)].map((m) => m[1]);
+    const runtime = [...src.matchAll(/^\s*import\s+(?!type\b)[^;]*from\s+"(@svg-editor\/(?:model|parser))"/gm)].map((m) => m[1]);
     expect(runtime).toEqual([]);
-    expect(src).not.toMatch(/\.model\b\.?/); // Editor#model is internal
+    expect(src).not.toMatch(/\b(?:editor|ed|e)\??\.model\b/); // Editor#model is internal
   });
 
   it("main and preload do not touch documents", () => {
@@ -237,7 +267,7 @@ describe.each(PARITY)("UI: $ui -> SDK: $sdk", ({ run }) => {
 });
 
 describe("every UI action is accounted for", () => {
-  const menuActions = [...read("shared/api.ts").matchAll(/\|\s*"(\w+)"/g)].map((m) => m[1]!);
+  const menuActions = [...read("shared/api.ts").match(/export type MenuAction =([^;]+);/)![1]!.matchAll(/"(\w+)"/g)].map((m) => m[1]!);
   const tools = [...read("renderer/canvas.ts").matchAll(/export type Tool = ([^;]+);/g)][0]![1]!.match(/"(\w+)"/g)!.map((t) => t.slice(1, -1));
 
   it("found the app's menu actions and tools", () => {
