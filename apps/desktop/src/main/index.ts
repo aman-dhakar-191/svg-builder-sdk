@@ -6,10 +6,6 @@ import { checkOnStart, registerUpdater } from "./updater.js";
 
 // Tests point userData at a temp dir so settings never touch the real profile.
 if (process.env.SVG_EDITOR_USER_DATA) app.setPath("userData", process.env.SVG_EDITOR_USER_DATA);
-// The app was called "SVG Editor" before Curvant, and Electron names the settings folder
-// after the app. Keep using that folder, so an update keeps AI settings, recent files and
-// update settings; nobody sees its name.
-else if (app.isPackaged) app.setPath("userData", join(app.getPath("appData"), "SVG Editor"));
 
 /**
  * Per-window file state lives here, not in the renderer: the renderer never
