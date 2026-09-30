@@ -121,6 +121,7 @@ button:disabled { cursor: default; }
 #overlay .hover-outline { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-opacity: 0.55; stroke-dasharray: 3 2; }
 #overlay .sel-group { fill: none; stroke: var(--ink); stroke-dasharray: 4 3; }
 #overlay .sel-stem { stroke: var(--ink); }
+#overlay .snap-guide { stroke: var(--warm); stroke-width: 1; }
 #overlay .marquee { fill: color-mix(in srgb, var(--ink) 12%, transparent); stroke: var(--ink); stroke-dasharray: 3 2; }
 .text-input { position: absolute; z-index: 2; font: 16px var(--f-ui); padding: 3px 6px; min-width: 160px; border: 1px solid var(--ink); border-radius: 6px; background: var(--panel); box-shadow: var(--shadow); }
 

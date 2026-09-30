@@ -252,6 +252,7 @@ function buildMenu(): void {
           { type: "separator" },
           item("Show Grid", "toggleGrid", "CmdOrCtrl+'"),
           item("Snap to Grid", "toggleSnap", "CmdOrCtrl+Shift+'"),
+          item("Snap to Shapes", "toggleSnapShapes"),
           { type: "separator" },
           { role: "toggleDevTools" },
         ],

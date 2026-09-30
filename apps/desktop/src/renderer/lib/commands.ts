@@ -45,6 +45,7 @@ export const COMMANDS: Command[] = [
   { action: "zoomFit", label: "Zoom to fit", menu: "View", keys: "Mod+0" },
   { action: "toggleGrid", label: "Show grid", menu: "View", keys: "Mod+'", separator: true },
   { action: "toggleSnap", label: "Snap to grid", menu: "View", keys: "Mod+Shift+'" },
+  { action: "toggleSnapShapes", label: "Snap to shapes", menu: "View", keywords: "smart guides align edges centres centers objects" },
 ];
 
 export const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);

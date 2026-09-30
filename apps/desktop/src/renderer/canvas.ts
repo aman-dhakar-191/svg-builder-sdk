@@ -24,6 +24,8 @@ export type Tool = "select" | "rect" | "ellipse" | "line" | "text";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DRAG_THRESHOLD = 3;
+/** How close (screen px) an edge or centre must come to another shape's to snap to it. */
+const SNAP_PX = 6;
 const ROTATE_OFFSET = 24;
 const DRAW_STYLE = { fill: "#93c5fd", stroke: "#1e3a8a", "stroke-width": "1" };
 
@@ -31,7 +33,7 @@ const DRAW_STYLE = { fill: "#93c5fd", stroke: "#1e3a8a", "stroke-width": "1" };
 const GRAPHIC = new Set(["g", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "image", "use", "svg", "foreignObject", "a", "switch"]);
 
 type Gesture =
-  | { kind: "move"; start: Point; items: Item[]; moved: boolean }
+  | { kind: "move"; start: Point; items: Item[]; moved: boolean; box?: Rect; targets?: Rect[] }
   | { kind: "resize"; handle: Handle; items: Item[]; box: Rect; local: boolean }
   | { kind: "rotate"; center: Point; start: Point; items: Item[] }
   | { kind: "marquee"; start: Point; additive: boolean; rect: SVGRectElement }
@@ -82,6 +84,10 @@ export class CanvasController {
   private activeNode: number | null = null;
   /** Told when the selected point changes: its index and whether it is smooth, or null. */
   onActiveNode: (node: { seg: number; smooth: boolean; isStart: boolean } | null) => void = () => {};
+  /** Snap moved shapes to other shapes' and the page's edges and centres (with guide lines). */
+  snapShapes = true;
+  /** Guide lines of the current shape snap, in screen space. */
+  private guides: { x?: { at: number; from: number; to: number }; y?: { at: number; from: number; to: number } } | null = null;
   /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
   private hover: NodeId | null = null;
 
@@ -463,6 +469,9 @@ export class CanvasController {
       return;
     }
     this.drawHover(o, local);
+    const gd = this.guides;
+    if (gd?.x) { const a = local({ x: gd.x.at, y: gd.x.from }); const b = local({ x: gd.x.at, y: gd.x.to }); o.appendChild(svgEl("line", { class: "snap-guide", x1: a.x, y1: a.y - 8, x2: b.x, y2: b.y + 8 })); }
+    if (gd?.y) { const a = local({ x: gd.y.from, y: gd.y.at }); const b = local({ x: gd.y.to, y: gd.y.at }); o.appendChild(svgEl("line", { class: "snap-guide", x1: a.x - 8, y1: a.y, x2: b.x + 8, y2: b.y })); }
     const items = this.selection.map((id) => this.itemFor(id)).filter((i): i is Item => i !== null);
     if (items.length === 0 || this.gesture?.kind === "draw") return;
 
@@ -590,6 +599,53 @@ export class CanvasController {
     return ctm ? applyLinear(mat(ctm), { x: to.x - from.x, y: to.y - from.y }) : d;
   }
 
+  /**
+   * Shape snapping for a move: the selection's left / centre / right (top / middle / bottom)
+   * within SNAP_PX of another shape's or the page's is pulled onto it, and a guide shows where.
+   * `only` limits it to one axis (Shift keeps a move straight).
+   */
+  private snapToShapes(g: Extract<Gesture, { kind: "move" }>, d: Point, only: "x" | "y" | null): Point {
+    if (!g.box) g.box = boundsOf(g.items.flatMap((i) => this.screenCorners(i)));
+    if (!g.targets) g.targets = this.snapTargets(g.items.map((i) => i.id));
+    const b = { x: g.box.x + d.x, y: g.box.y + d.y, width: g.box.width, height: g.box.height };
+    const best = (mine: number[], theirs: (r: Rect) => number[]) => {
+      let hit: { diff: number; at: number; r: Rect } | null = null;
+      for (const r of g.targets!) for (const t of theirs(r)) for (const m of mine) {
+        const diff = t - m;
+        if (Math.abs(diff) <= SNAP_PX && (!hit || Math.abs(diff) < Math.abs(hit.diff))) hit = { diff, at: t, r };
+      }
+      return hit;
+    };
+    const hx = only === "y" ? null : best([b.x, b.x + b.width / 2, b.x + b.width], (r) => [r.x, r.x + r.width / 2, r.x + r.width]);
+    const hy = only === "x" ? null : best([b.y, b.y + b.height / 2, b.y + b.height], (r) => [r.y, r.y + r.height / 2, r.y + r.height]);
+    const out = { x: d.x + (hx?.diff ?? 0), y: d.y + (hy?.diff ?? 0) };
+    const moved = { x: g.box.x + out.x, y: g.box.y + out.y };
+    this.guides = hx || hy ? {} : null;
+    if (hx) this.guides!.x = { at: hx.at, from: Math.min(moved.y, hx.r.y), to: Math.max(moved.y + b.height, hx.r.y + hx.r.height) };
+    if (hy) this.guides!.y = { at: hy.at, from: Math.min(moved.x, hy.r.x), to: Math.max(moved.x + b.width, hy.r.x + hy.r.width) };
+    return out;
+  }
+
+  /** Screen boxes of every shape a move can snap to (not the moved ones, their groups or contents), and the page. */
+  private snapTargets(moving: NodeId[]): Rect[] {
+    const doc = this.editor.doc;
+    const related = (id: NodeId) =>
+      moving.some((m) => {
+        for (let a: NodeId | null = m; a !== null; a = doc.getNode(a).parent ?? null) if (a === id) return true; // an ancestor
+        for (let a: NodeId | null = id; a !== null; a = doc.getNode(a).parent ?? null) if (a === m) return true; // inside it
+        return false;
+      });
+    const out: Rect[] = [];
+    for (const [id, el] of this.elOf) {
+      if (id === doc.root || !doc.has(id) || related(id)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 || r.height > 0) out.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+    }
+    const page = this.svg?.getBoundingClientRect();
+    if (page) out.push({ x: page.left, y: page.top, width: page.width, height: page.height });
+    return out;
+  }
+
   private toRoot(p: Point): Point {
     const ctm = this.svg?.getScreenCTM();
     return ctm ? apply(invert(mat(ctm)), p) : p;
@@ -621,6 +677,8 @@ export class CanvasController {
         g.moved = true;
         let constrained = e.shiftKey ? (Math.abs(d.x) > Math.abs(d.y) ? { x: d.x, y: 0 } : { x: 0, y: d.y }) : d;
         if (this.snapper.snapping) constrained = this.snapDelta(g.items, constrained);
+        if (this.snapShapes && !e.altKey) constrained = this.snapToShapes(g, constrained, e.shiftKey ? (constrained.x === 0 ? "y" : "x") : null);
+        else this.guides = null;
         for (const it of g.items) {
           const v = applyLinear(it.parentInv, constrained);
           const t: [number, number] = [round(v.x), round(v.y)];
@@ -682,6 +740,7 @@ export class CanvasController {
     const g = this.gesture;
     if (!g) return;
     this.gesture = null;
+    this.guides = null;
     switch (g.kind) {
       case "pan":
         return;
@@ -699,7 +758,7 @@ export class CanvasController {
       case "resize":
       case "rotate": {
         const cmds = g.items.map((i) => i.command).filter((c): c is Command => c !== undefined);
-        if (cmds.length === 0) return;
+        if (cmds.length === 0) return this.drawOverlay();
         this.run(cmds); // re-renders from the model
         return;
       }
@@ -737,6 +796,7 @@ export class CanvasController {
     const g = this.gesture;
     if (!g) return false;
     this.gesture = null;
+    this.guides = null;
     if (g.kind === "marquee") g.rect.remove();
     else if (g.kind === "draw") g.el.remove();
     else if (g.kind === "pan") return true;

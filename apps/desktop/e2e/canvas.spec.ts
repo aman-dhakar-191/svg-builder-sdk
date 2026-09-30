@@ -350,6 +350,39 @@ test("points: double-click the outline adds one, Delete removes it, double-click
   await expect.poll(d).toBe("M100 85 L180 85 L180 115");
 });
 
+test("snap to shapes: an edge dragged near another shape's lands on it, with a guide; Alt turns it off", async () => {
+  const original = await code();
+  const r = (await rect().boundingBox())!;
+  const c = (await circle().boundingBox())!;
+  const from = await center(rect());
+  // Stop 3 px short of the circle's left edge (x = 110), horizontally (Shift).
+  const to = { x: from.x + (c.x - (r.x + r.width)) - 3, y: from.y };
+  // Shift after the press keeps the move horizontal (Shift at the press would toggle the selection).
+  const straightDrag = async (hold: "Alt" | null, beforeUp?: () => Promise<void>) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.keyboard.down("Shift");
+    if (hold) await page.keyboard.down(hold);
+    for (let i = 1; i <= 5; i++) await page.mouse.move(from.x + ((to.x - from.x) * i) / 5, from.y);
+    await beforeUp?.();
+    await page.mouse.up();
+    if (hold) await page.keyboard.up(hold);
+    await page.keyboard.up("Shift");
+  };
+  let guides = 0;
+  await straightDrag(null, async () => { guides = await page.locator("#overlay .snap-guide").count(); });
+  expect(guides).toBe(1);
+  await expect(page.locator("#overlay .snap-guide")).toHaveCount(0); // gone after the drop
+  await expect.poll(code).toContain('<rect x="10" y="10" width="80" height="60" rx="8" fill="#4f46e5" transform="translate(20 0)"/>');
+  await undoRestores(original);
+
+  // With Alt held the shape stays where the pointer put it.
+  await straightDrag("Alt");
+  await expect.poll(code).toMatch(/transform="translate\((\d+(\.\d+)?) 0\)"/);
+  expect(await code()).not.toContain("translate(20 0)");
+  await undoRestores(original);
+});
+
 test("Convert to Path explains what it cannot do", async () => {
   await page.locator("#canvas svg > text").click();
   await menu("convertToPath");

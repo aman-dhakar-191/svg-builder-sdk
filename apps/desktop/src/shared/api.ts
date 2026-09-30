@@ -16,6 +16,7 @@ export type MenuAction =
   | "zoomFit"
   | "toggleGrid"
   | "toggleSnap"
+  | "toggleSnapShapes"
   | "simulateAiTurn"
   | "convertToPath"
   | "editNodes"
