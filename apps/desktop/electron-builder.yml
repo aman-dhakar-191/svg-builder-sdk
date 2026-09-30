@@ -11,7 +11,8 @@ files:
   - package.json
 npmRebuild: false
 asar: true
-artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+# No spaces: this is also the release asset and artifact name.
+artifactName: "SVG-Editor-${version}-${os}-${arch}.${ext}"
 linux:
   target: [AppImage]
   category: Graphics

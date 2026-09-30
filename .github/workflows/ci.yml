@@ -9,12 +9,34 @@ on:
 
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a release half-way; branch runs are superseded by newer pushes.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Picks the version: every push to main is a release (vMAJOR.MINOR.PATCH,
+  # patch bumped automatically); other builds get PATCH-dev.RUN_NUMBER.
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      release: ${{ steps.pick.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # tags
+      - id: pick
+        run: node .github/scripts/version.mjs
+        env:
+          RELEASE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          RUN_NUMBER: ${{ github.run_number }}
+
   build:
     name: Build & test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -78,13 +100,40 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Releases only: a draft release that the package jobs attach installers to.
+  # It stays a draft (invisible to users) until every installer is attached.
+  release-draft:
+    name: Release draft
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release v${{ needs.version.outputs.version }}
+        if: needs.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; reusing it."
+          else
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "SVG Editor ${TAG#v}" --generate-notes \
+              --notes "Installers are unsigned: on Windows choose \"More info\" → \"Run anyway\"; on macOS right-click the app → Open."
+          fi
+
   # Installers are built here, never locally: one job per OS, smoke-tested,
-  # uploaded as workflow artifacts (Actions run page -> Artifacts).
+  # uploaded as workflow artifacts (single files, not zipped) and, on main,
+  # attached to the release.
   package:
     name: Package (${{ matrix.os }})
-    needs: build
+    needs: [version, build, release-draft]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    permissions:
+      contents: write # only used by "Attach to release", on main
     strategy:
       fail-fast: false
       matrix:
@@ -103,6 +152,10 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Set version ${{ needs.version.outputs.version }}
+        working-directory: apps/desktop
+        run: npm pkg set version=${{ needs.version.outputs.version }}
 
       - name: Build app
         run: pnpm --filter @svg-editor/desktop build
@@ -125,13 +178,76 @@ jobs:
           echo "Testing $APP"
           PACKAGED_APP="$APP" $RUN pnpm exec playwright test e2e/packaged.spec.ts
 
-      - name: Upload installer
+      # archive: false uploads the installer itself (no zip); one file per upload.
+      - name: Upload installer (Linux)
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: SVG-Editor-${{ runner.os }}
-          path: |
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.exe
-            apps/desktop/release/*.dmg
+          path: apps/desktop/release/*.AppImage
+          archive: false
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload installer (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: apps/desktop/release/*.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload installer (macOS, Apple silicon)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: apps/desktop/release/*-arm64.dmg
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload installer (macOS, Intel)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: apps/desktop/release/*-x64.dmg
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to release
+        if: needs.version.outputs.release == 'true'
+        shell: bash
+        working-directory: apps/desktop/release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          shopt -s nullglob
+          files=(*.AppImage *.exe *.dmg)
+          echo "Attaching ${files[*]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  # Publishes the draft once every installer is attached; this creates the tag.
+  release:
+    name: Publish release
+    needs: [version, package]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish v${{ needs.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release edit "$TAG" --draft=false --latest
+          else
+            echo "$TAG is already published."
+          fi
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[].name)'

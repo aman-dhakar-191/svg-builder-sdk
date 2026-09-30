@@ -30,12 +30,14 @@ Installers are built by GitHub Actions only, never locally. They are **unsigned*
 - **macOS:** right-click the app → Open.
 - **Linux:** mark the AppImage executable, then run it.
 
-To get them: open the repository's **Actions** tab, pick the latest green **CI** run, and download from **Artifacts**:
-- `SVG-Editor-Windows` (`.exe` installer)
-- `SVG-Editor-macOS` (`.dmg`, Apple silicon and Intel)
-- `SVG-Editor-Linux` (`.AppImage`)
+**Releases:** every merge to `main` publishes a GitHub Release (`v0.1.0`, `v0.1.1`, …) with the installers attached. Get the latest from the repository's **Releases** page:
+- `SVG-Editor-<version>-win-x64.exe`
+- `SVG-Editor-<version>-mac-arm64.dmg` (Apple silicon) and `…-mac-x64.dmg` (Intel)
+- `SVG-Editor-<version>-linux-x86_64.AppImage`
 
-Each installer is smoke-tested in CI (the packaged app is launched and checked) before it is uploaded.
+**Test builds:** every other push builds the same installers as `<next>-dev.<run>` versions. Open the **Actions** tab, pick the CI run, and download them from **Artifacts** (each is the installer file itself, not a zip).
+
+Each installer is smoke-tested in CI (the packaged app is launched and checked) before it is uploaded. The patch number goes up automatically; to start a new minor or major version, change `version` in `apps/desktop/package.json` (e.g. to `0.2.0`).
 
 ## Building
 
