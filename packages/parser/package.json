@@ -1,0 +1,24 @@
+{
+  "name": "@svg-editor/parser",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Position-aware SVG parser, minimal text patches for model changes, and ID reconciliation.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@svg-editor/model": "workspace:*"
+  }
+}

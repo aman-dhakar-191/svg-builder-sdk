@@ -1,0 +1,36 @@
+{
+  "name": "@svg-editor/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron app: code pane + live canvas over the shared document model.",
+  "type": "module",
+  "main": "out/main/index.cjs",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json && tsc -p tsconfig.e2e.json",
+    "test:e2e": "playwright test",
+    "package": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-xml": "^6.1.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "@playwright/test": "^1.63.0",
+    "@svg-editor/sdk": "workspace:*",
+    "electron": "^44.5.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "vite": "^7.3.6"
+  },
+  "author": {
+    "name": "aman-dhakar-191",
+    "email": "amandhaker191@gmail.com"
+  },
+  "productName": "SVG Editor",
+  "desktopName": "svg-editor.desktop"
+}
