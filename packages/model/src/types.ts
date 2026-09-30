@@ -41,7 +41,9 @@ export type Command =
       origin?: "center" | Vec2;
     }
   | { op: "setText"; id: NodeId; text: string }
-  | { op: "batch"; commands: Command[] };
+  | { op: "batch"; commands: Command[] }
+  /** Replace the whole document content (e.g. after a code edit). Nodes with an `id` keep it. */
+  | { op: "replace"; tree: InputTree };
 
 export type CommandOp = Command["op"];
 
@@ -84,6 +86,7 @@ export interface CommandResultMap {
   transform: { id: NodeId; transform: string };
   setText: { id: NodeId };
   batch: { results: unknown[] };
+  replace: { root: NodeId };
 }
 
 export type CommandResult<T = unknown> =

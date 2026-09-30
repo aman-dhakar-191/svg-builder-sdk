@@ -11,6 +11,7 @@ import {
   type BBox,
   type CommandError,
   type CommandResultMap,
+  type InputTree,
   type NodeId,
   type SvgNode,
   type Vec2,
@@ -439,6 +440,61 @@ function batch(ctx: CommandContext, cmd: Record<string, unknown>): CommandResult
   return { results };
 }
 
+function replace(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["replace"] {
+  const tree = cmd.tree;
+  if (!isRecord(tree)) fail("INVALID_COMMAND", 'replace: "tree" must be an object.', 'Example: { op: "replace", tree: { tag: "svg", attrs: {}, children: [] } }.');
+  if (tree.tag !== "svg") fail("INVALID_TAG", `replace: the root must be <svg>, got <${String(tree.tag)}>.`, "Wrap the content in an <svg> element.");
+  if (tree.id !== undefined && tree.id !== ctx.root) fail("INVALID_COMMAND", `replace: root id must be "${ctx.root}" or omitted.`, "The root element keeps its ID.");
+
+  // Validate everything before touching the document.
+  const seen = new Set<NodeId>();
+  const check = (t: unknown, path: string): void => {
+    if (!isRecord(t) || typeof t.tag !== "string" || !isRecord(t.attrs) || !Array.isArray(t.children)) {
+      fail("INVALID_COMMAND", `replace: node at ${path} needs tag, attrs and children.`, "Use the shape { tag, attrs, children, text?, id? }.");
+    }
+    if (t.tag === TEXT_TAG) {
+      if (typeof t.text !== "string" || t.text === "" || t.children.length > 0 || Object.keys(t.attrs).length > 0) {
+        fail("INVALID_COMMAND", `replace: text node at ${path} needs non-empty text and no attrs or children.`, 'Example: { tag: "#text", attrs: {}, text: "Hi", children: [] }.');
+      }
+    } else {
+      requireName(t.tag, "tag");
+      for (const [k, v] of Object.entries(t.attrs)) {
+        requireName(k, "attribute");
+        if (typeof v !== "string") fail("INVALID_ATTR", `replace: attribute "${k}" at ${path} must be a string.`, `Write numbers as strings, e.g. ${k}: "${String(v)}".`);
+      }
+    }
+    if (t.id !== undefined && path !== "root") {
+      if (typeof t.id !== "string" || !ctx.get(t.id) || t.id === ctx.root) {
+        fail("NOT_FOUND", `replace: id ${JSON.stringify(t.id)} at ${path} is not a node of this document.`, "Only reuse IDs of existing nodes; omit id for new nodes.");
+      }
+      if (seen.has(t.id)) fail("INVALID_COMMAND", `replace: id "${t.id}" is used twice.`, "Each ID may appear once.");
+      seen.add(t.id);
+    }
+    t.children.forEach((c: unknown, i: number) => check(c, `${path}.${i}`));
+  };
+  check(tree, "root");
+
+  const root = ctx.get(ctx.root)!;
+  // Remove from the end and insert from the start: every intermediate state is
+  // a prefix of a valid document, so it can always be written as text.
+  for (let i = root.children.length - 1; i >= 0; i--) ctx.apply({ kind: "remove", id: root.children[i]! });
+  setAttrs(ctx, root, { ...(tree.attrs as Record<string, string>) });
+  const flatten = (t: InputTree, parent: NodeId, out: SvgNode[]): NodeId => {
+    const id = t.id ?? ctx.newId();
+    const node: SvgNode = { id, tag: t.tag, attrs: { ...t.attrs }, children: [], parent };
+    if (t.text !== undefined) node.text = t.text;
+    out.push(node);
+    node.children = t.children.map((c) => flatten(c, id, out));
+    return id;
+  };
+  (tree.children as InputTree[]).forEach((child, index) => {
+    const nodes: SvgNode[] = [];
+    flatten(child, ctx.root, nodes);
+    ctx.apply({ kind: "insert", parent: ctx.root, index, nodes });
+  });
+  return { root: ctx.root };
+}
+
 const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown>) => unknown> = {
   add,
   set,
@@ -449,6 +505,7 @@ const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown
   transform,
   setText,
   batch,
+  replace,
 };
 
 /** Runs one command. Throws CommandFailure; the caller rolls back partial changes. */

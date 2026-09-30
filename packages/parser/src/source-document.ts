@@ -11,6 +11,7 @@ import {
   type SvgNode,
 } from "@svg-editor/model";
 import { parseSvg, type ParsedAttr, type ParsedElement, type ParsedNode, type ParseError } from "./parse.js";
+import { reconcile } from "./reconcile.js";
 import { toInputTree, zip, type SourceMap } from "./source-map.js";
 
 /** Replace [from, to) of the text *before* the change with `insert` (CodeMirror's shape). */
@@ -24,9 +25,13 @@ export interface TextChange {
   /** Non-overlapping edits, all in coordinates of the text before this change. */
   edits: TextEdit[];
   text: string;
-  /** How the edit was produced. Anything but "patch" means formatting was lost somewhere. */
-  method: "patch" | "subtree" | "document";
+  /** How the edit was produced. "subtree" / "document" mean formatting was lost somewhere. */
+  method: "patch" | "subtree" | "document" | "code";
 }
+
+export type SetTextResult =
+  | { ok: true; kept: number; created: number; removed: number }
+  | { ok: false; error: ParseError };
 
 export type OpenResult = { ok: true; source: SourceDocument } | { ok: false; error: ParseError };
 
@@ -74,6 +79,10 @@ export class SourceDocument {
    */
   private readonly opened = new Map<NodeId, string>();
   private _fallbacks = 0;
+  /** True while applying a code edit: the text is already right, so no patching. */
+  private suppress = false;
+  /** Text and model disagree mid-transaction; resolved at the next history boundary. */
+  private stale = false;
   /** Text at the last history boundary, and the texts around each undo step. */
   private boundaryText: string;
   private readonly entryTexts = new WeakMap<object, { before: string; after: string }>();
@@ -116,7 +125,41 @@ export class SourceDocument {
 
   // ---------------------------------------------------------------- core
 
+  /**
+   * Applies text typed in the code pane: parse, keep node IDs via reconcile,
+   * and replace the model content as one undo step. On a parse error nothing
+   * changes (the model keeps the last good state) and the error is returned.
+   */
+  setText(text: string): SetTextResult {
+    if (text === this._text) return { ok: true, kept: 0, created: 0, removed: 0 };
+    const parsed = parseSvg(text);
+    if (!parsed.ok) return parsed;
+    const rec = reconcile(this.doc, parsed.root);
+    const before = this._text;
+    const tx = this.doc.beginTransaction();
+    this.suppress = true;
+    let map: SourceMap | null = null;
+    try {
+      const r = this.doc.execute({ op: "replace", tree: rec.tree });
+      if (r.ok) map = zip(parsed.root, this.doc.root, (id) => this.doc.getNode(id));
+    } finally {
+      if (!map) {
+        tx.rollback();
+        this.suppress = false;
+      }
+    }
+    if (!map) throw new Error("internal: parsed text could not be loaded into the model");
+    this._text = text;
+    this.root = parsed.root;
+    this.map = map;
+    this.suppress = false;
+    tx.commit();
+    for (const l of this.listeners) l({ edits: [diffEdit(before, text)], text, method: "code" });
+    return { ok: true, kept: rec.kept, created: rec.created, removed: rec.removed.length };
+  }
+
   private onMutation(m: Mutation): void {
+    if (this.suppress || this.stale) return;
     let edits: TextEdit[] | null = null;
     try {
       edits = this.patchFor(m);
@@ -132,7 +175,9 @@ export class SourceDocument {
       if (this.commit([edit], "subtree")) return;
     }
     const whole = { from: 0, to: this._text.length, insert: this.doc.toSvg({ pretty: true, indent: this.indentUnit }).replace(/\n/g, this.newline) };
-    if (!this.commit([whole], "document")) throw new Error("internal: serialized document does not match the model");
+    // Not representable right now (possible only mid-transaction); the next
+    // history boundary snaps to recorded text or regenerates it.
+    if (!this.commit([whole], "document")) this.stale = true;
   }
 
   /**
@@ -156,18 +201,21 @@ export class SourceDocument {
         break;
       }
     }
+    if (this.stale) this.resync();
     this.boundaryText = this._text;
   }
 
+  private resync(): void {
+    const parsed = parseSvg(this._text);
+    if (parsed.ok && this.commit([], "patch")) return;
+    const whole = { from: 0, to: this._text.length, insert: this.doc.toSvg({ pretty: true, indent: this.indentUnit }).replace(/\n/g, this.newline) };
+    this.commit([whole], "document");
+  }
+
   private snapTo(target: string): void {
-    const cur = this._text;
-    if (cur === target) return;
-    let pre = 0;
-    while (pre < cur.length && pre < target.length && cur[pre] === target[pre]) pre++;
-    let suf = 0;
-    while (suf < cur.length - pre && suf < target.length - pre && cur[cur.length - 1 - suf] === target[target.length - 1 - suf]) suf++;
+    if (this._text === target) return;
     // If the recorded text no longer matches the model, keep the patched text.
-    this.commit([{ from: pre, to: cur.length - suf, insert: target.slice(pre, target.length - suf) }], "patch");
+    this.commit([diffEdit(this._text, target)], "patch");
   }
 
   /** Applies edits, then re-parses and checks the text still matches the model. */
@@ -181,7 +229,8 @@ export class SourceDocument {
     this._text = text;
     this.root = parsed.root;
     this.map = map;
-    for (const l of this.listeners) l({ edits, text, method });
+    this.stale = false;
+    if (edits.length > 0) for (const l of this.listeners) l({ edits, text, method });
     return true;
   }
 
@@ -531,6 +580,15 @@ function detectIndent(text: string): string {
   if (!m) return "  ";
   const ws = m[1]!;
   return ws.startsWith("\t") ? "\t" : ws.length <= 4 ? ws : "  ";
+}
+
+/** One edit turning `a` into `b`: the differing middle between common prefix and suffix. */
+export function diffEdit(a: string, b: string): TextEdit {
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
+  return { from: pre, to: a.length - suf, insert: b.slice(pre, b.length - suf) };
 }
 
 /** Applies non-overlapping edits given in original coordinates. Null if they overlap. */

@@ -302,3 +302,37 @@ describe("command validation", () => {
     expect(e.message).toContain("n_42");
   });
 });
+
+describe("replace", () => {
+  it("replaces the content as one undo step, keeping given IDs", () => {
+    const a = add("rect", { x: "1" });
+    const g = add("g");
+    const inner = add("circle", {}, g);
+    const r = expectRoundTrip(doc, {
+      op: "replace",
+      tree: {
+        tag: "svg",
+        attrs: { viewBox: "0 0 10 10" },
+        children: [
+          { id: inner, tag: "circle", attrs: { r: "2" }, children: [] },
+          { tag: "text", attrs: {}, children: [{ tag: TEXT_TAG, attrs: {}, text: "hi", children: [] }] },
+        ],
+      },
+    });
+    expect(r.root).toBe(doc.root);
+    const tree = doc.getTree()!;
+    expect(tree.attrs).toEqual({ viewBox: "0 0 10 10" });
+    expect(tree.children[0]).toMatchObject({ id: inner, attrs: { r: "2" } });
+    expect(doc.getNode(a)).toBeUndefined();
+    expect(doc.getNode(g)).toBeUndefined();
+    expect(tree.children[1]!.id).not.toBe(a);
+  });
+
+  it("validates before changing anything", () => {
+    add("rect");
+    expect(expectNoChange(doc, { op: "replace", tree: { tag: "g", attrs: {}, children: [] } }).code).toBe("INVALID_TAG");
+    expect(expectNoChange(doc, { op: "replace", tree: { tag: "svg", attrs: {}, children: [{ id: "n_999", tag: "g", attrs: {}, children: [] }] } }).code).toBe("NOT_FOUND");
+    expect(expectNoChange(doc, { op: "replace", tree: { tag: "svg", attrs: {}, children: [{ tag: TEXT_TAG, attrs: {}, text: "", children: [] }] } }).code).toBe("INVALID_COMMAND");
+    expect(expectNoChange(doc, { op: "replace", tree: { tag: "svg", attrs: { x: 1 }, children: [] } }).code).toBe("INVALID_ATTR");
+  });
+});
