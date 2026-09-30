@@ -84,7 +84,7 @@ All throw `SvgEditorError`; none half-apply. Attribute values may be numbers (wr
 | `execute(command)` | the raw command form, never throws: `{ ok, result }` or `{ ok: false, error }` |
 | `select(ids)`, `getSelection()`, `clearSelection()`, `selectInRect(rect)`, `onSelectionChange(fn)` | selection (deleted nodes drop out automatically) |
 | `getSourceRange(id)`, `nodeAt(offset)` | map nodes to and from source offsets |
-| `intrinsicSize()`, `exportPng({ scale? })` | PNG needs `rasterize` |
+| `intrinsicSize()`, `exportPng({ scale?, region?, maxSize?, background? })` | PNG needs `rasterize`. `region` is a rectangle in viewBox units (may reach past the page), `maxSize` caps the longer side in pixels, `background` is a CSS colour under the drawing. |
 | `setBridges({ rasterize?, measure? })` | plug renderer capabilities in later |
 
 ### Locking (one writer at a time, e.g. an AI turn)

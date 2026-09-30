@@ -36,12 +36,13 @@ test.afterEach(async () => {
 
 const code = () => page.evaluate(() => (window as unknown as { editor: { view: { state: { doc: { toString(): string } } } } }).editor.view.state.doc.toString());
 
-async function configure(format: "anthropic" | "openai-compatible", model: string, key = KEY): Promise<void> {
+async function configure(format: "anthropic" | "openai-compatible", model: string, key = KEY, vision = true): Promise<void> {
   const box = page.locator("#ai-settings-box");
   if (!(await box.evaluate((d) => (d as HTMLDetailsElement).open))) await page.locator("#ai-settings-box summary").click();
   await page.locator('#ai-settings [name="format"]').selectOption(format);
   await page.locator('#ai-settings [name="baseUrl"]').fill(format === "anthropic" ? baseUrl : `${baseUrl}/v1`);
   await page.locator('#ai-settings [name="model"]').fill(model);
+  await page.locator('#ai-settings [name="vision"]').setChecked(vision);
   if (key) await page.locator('#ai-settings [name="apiKey"]').fill(key);
   await page.locator('#ai-settings button[type="submit"]').click();
   await expect(page.locator("#ai-settings-status")).toHaveText("Saved.");
@@ -197,9 +198,11 @@ test("API errors are shown, nothing changes, the editor unlocks", async () => {
 
 test("settings: test connection, key never returned to the page or written in plain text", async () => {
   await configure("anthropic", "claude-test-model");
-  mock.script([{ tools: [{ name: "ping", input: {} }] }]);
+  mock.script([{ tools: [{ name: "ping", input: {} }] }, { tools: [{ name: "ping", input: {} }] }]);
   await page.locator("#ai-test").click();
-  await expect(page.locator("#ai-settings-status")).toHaveText("Connected to mock-claude. Tool calling works.");
+  await expect(page.locator("#ai-settings-status")).toHaveText("Connected to mock-claude. Tool calling and images work.");
+  // The second request checked image input with a small PNG.
+  expect(JSON.stringify(mock.requests[1]!.body.messages)).toContain('"type":"image"');
 
   const view = await page.evaluate(() => (window as unknown as { desktop: { ai: { getSettings(): Promise<unknown> } } }).desktop.ai.getSettings());
   expect(view).toMatchObject({ format: "anthropic", model: "claude-test-model", hasKey: true });
@@ -224,4 +227,84 @@ test("OpenAI-compatible servers work without a key; a missing Anthropic key open
   await ask("hi");
   await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Hello from a local model.");
   expect(mock.requests[0]!.headers.authorization).toBeUndefined();
+});
+
+const PNG_B64 = /^iVBORw0KGgo/;
+
+test("vision loop (Anthropic): the AI takes a snapshot, sees it in the tool result, earlier snapshots are dropped", async () => {
+  await configure("anthropic", "claude-test-model");
+  mock.script([
+    { tools: [{ name: "add_elements", input: HOUSE }] },
+    { tools: [{ name: "render_snapshot", input: {} }] },
+    { text: "Checked: the house looks right." },
+  ]);
+  await ask("draw a simple house with a red door and check it");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Checked: the house looks right.");
+  await expect(page.locator(".chat-tools li")).toHaveText(["add elements", "render snapshot"]);
+  await expect(page.locator(".chat-snapshot")).toHaveCount(1);
+  expect((mock.requests[0]!.body.tools as { name: string }[]).map((t) => t.name)).toContain("render_snapshot");
+
+  const third = mock.requests[2]!.body.messages as { role: string; content: { type: string; content?: { type: string; source?: { data: string } }[] }[] }[];
+  const result = third.at(-1)!.content[0]!;
+  expect(result.type).toBe("tool_result");
+  const image = result.content!.find((c) => c.type === "image")!;
+  expect(image.source!.data).toMatch(PNG_B64);
+  expect(JSON.parse((result.content![0] as unknown as { text: string }).text)).toMatchObject({ width: expect.any(Number), region: "whole page" });
+
+  // Next turn: the old snapshot is replaced by a note, not re-sent.
+  mock.script([{ text: "Ok." }]);
+  await ask("thanks");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Ok.");
+  const sent = JSON.stringify(mock.requests[3]!.body.messages);
+  expect(sent).not.toContain('"type":"image"');
+  expect(sent).toContain("snapshot from an earlier turn omitted");
+});
+
+test("vision loop (OpenAI-compatible): snapshot goes in a user message after the tool result", async () => {
+  await configure("openai-compatible", "gpt-test");
+  mock.script([{ tools: [{ name: "render_snapshot", input: {} }] }, { text: "Looks fine." }]);
+  await ask("how does it look?");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Looks fine.");
+  const msgs = mock.requests[1]!.body.messages as { role: string; content: unknown }[];
+  expect(msgs.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "user"]);
+  expect(JSON.parse(msgs[3]!.content as string)).toMatchObject({ image: "attached in the next user message" });
+  const parts = msgs[4]!.content as { type: string; image_url?: { url: string } }[];
+  expect(parts.find((p) => p.type === "image_url")!.image_url!.url).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
+});
+
+test("models without image input: no snapshot tool, and Test connection says so", async () => {
+  await configure("anthropic", "claude-test-model", KEY, false);
+  mock.script([{ text: "Hi." }]);
+  await ask("hi");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Hi.");
+  expect((mock.requests[0]!.body.tools as { name: string }[]).map((t) => t.name)).not.toContain("render_snapshot");
+
+  await configure("anthropic", "claude-test-model", KEY, true);
+  mock.script([{ tools: [{ name: "ping", input: {} }] }, { status: 400, error: "image input is not supported" }]);
+  await page.locator("#ai-test").click();
+  await expect(page.locator("#ai-settings-status")).toContainText("this model does not accept images");
+});
+
+test("OpenAI-compatible gateway that streams even when asked not to", async () => {
+  await configure("openai-compatible", "claude-code");
+  mock.openaiStreams = true;
+  mock.script([{ text: "Drawing.", tools: [{ name: "add_elements", input: HOUSE }] }, { text: "Done: a house with a red door." }]);
+  await ask("draw a simple house with a red door");
+  await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Drawing.Done: a house with a red door.");
+  expect(await code()).toMatch(/<rect id="door"[^>]*fill="#dc2626"/);
+  expect(mock.requests[0]!.body.stream).toBe(false);
+});
+
+test("model picker lists the endpoint's models (both formats); any name can still be typed", async () => {
+  mock.models = ["gpt-a", "claude-code", "llama-3"];
+  await configure("openai-compatible", "claude-code");
+  await expect(page.locator("#ai-models-status")).toHaveText("3 models available: pick one or type a name.");
+  await expect(page.locator("#ai-models option")).toHaveCount(3);
+  expect(await page.locator("#ai-models option").evaluateAll((o) => o.map((x) => (x as HTMLOptionElement).value))).toEqual(["claude-code", "gpt-a", "llama-3"]);
+
+  mock.models = ["claude-opus-5-5", "claude-sonnet-5-5"];
+  await page.locator('#ai-settings [name="format"]').selectOption("anthropic");
+  await page.locator('#ai-settings [name="baseUrl"]').fill(baseUrl);
+  await expect(page.locator("#ai-models option")).toHaveCount(2);
+  expect(mock.modelRequests.at(-1)).toMatchObject({ path: "/v1/models", headers: { "x-api-key": KEY } });
 });

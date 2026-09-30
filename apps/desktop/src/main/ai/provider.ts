@@ -24,12 +24,21 @@ export interface TurnResult {
 /** Errors meant for the user, with a message that says what to fix. */
 export class ProviderError extends Error {
   override readonly name = "ProviderError";
+  constructor(
+    message: string,
+    /** HTTP status, when the API answered with an error. */
+    readonly status?: number,
+  ) {
+    super(message);
+  }
 }
 
 export interface Provider {
   runTurn(args: TurnArgs): Promise<TurnResult>;
   /** One tiny request that exercises tool calling; resolves with a user-facing message. */
   test(settings: AiSettings, apiKey: string | null, signal: AbortSignal): Promise<string>;
+  /** Model IDs the endpoint offers (for the model picker). */
+  listModels(settings: AiSettings, apiKey: string | null, signal: AbortSignal): Promise<string[]>;
 }
 
 /** A tool the connection test asks the model to call. */
@@ -38,3 +47,11 @@ export const PING_TOOL = {
   description: "Connection check. Call this tool once.",
   input_schema: { type: "object" as const, properties: {}, additionalProperties: false },
 };
+
+/** A 1x1 PNG: Test connection sends it when image input is on, to check the model accepts images. */
+export const TEST_IMAGE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+
+export const NO_VISION_MESSAGE = "this model does not accept images. Turn off \"Model can see images\" in AI settings (the AI then works without snapshots).";
+
+/** Placeholder for snapshots from earlier turns, which are dropped to keep requests small. */
+export const OLD_SNAPSHOT_TEXT = "[snapshot from an earlier turn omitted]";

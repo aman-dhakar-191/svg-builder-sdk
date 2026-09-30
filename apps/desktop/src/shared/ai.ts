@@ -10,6 +10,8 @@ export interface AiSettings {
   baseUrl: string;
   model: string;
   effort: Effort;
+  /** The model accepts images: enables the render_snapshot tool (the AI looks at its work). */
+  vision: boolean;
 }
 
 /** What the renderer sees: never the key itself. */
@@ -26,7 +28,7 @@ export interface AiSettingsUpdate extends AiSettings {
   apiKey?: string | null;
 }
 
-export const DEFAULT_AI_SETTINGS: AiSettings = { format: "anthropic", baseUrl: "", model: "claude-opus-5-5", effort: "default" };
+export const DEFAULT_AI_SETTINGS: AiSettings = { format: "anthropic", baseUrl: "", model: "claude-opus-5-5", effort: "default", vision: true };
 
 export interface AiTestResult {
   ok: boolean;
@@ -46,7 +48,9 @@ export interface AiToolCall {
   input: unknown;
 }
 
-export type AiToolOutcome = { ok: true; result: unknown } | { ok: false; error: { code: string; message: string; hint: string } };
+export type AiToolOutcome =
+  | { ok: true; result: unknown; image?: { mediaType: "image/png"; data: string } }
+  | { ok: false; error: { code: string; message: string; hint: string } };
 
 export interface AiRunResult {
   /** done: finished; stopped: user pressed Stop; refused: model declined; limit: too many tool rounds; error: see message. */

@@ -7,6 +7,7 @@ export type SdkErrorCode =
   | "PARSE_ERROR"
   | "NO_RASTERIZER"
   | "EXPORT_FAILED"
+  | "INVALID_REGION"
   | "LOCKED"
   | "LOCK_RELEASED"
   | "LOCK_STOPPED";

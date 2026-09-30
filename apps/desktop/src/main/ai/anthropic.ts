@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { SYSTEM_PROMPT, TOOLS, validate } from "@svg-editor/ai-tools";
+import { SYSTEM_PROMPT, toolsFor, validate } from "@svg-editor/ai-tools";
 import type { AiSettings } from "../../shared/ai.js";
-import { PING_TOOL, ProviderError, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
+import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
 
 type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 type Message = Anthropic.Beta.Messages.BetaMessage;
@@ -96,8 +96,9 @@ export const anthropicProvider: Provider = {
   async runTurn(a: TurnArgs): Promise<TurnResult> {
     try {
       const c = client(a.settings, a.apiKey);
-      const tools = TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })) as Tools;
+      const tools = toolsFor({ vision: a.settings.vision }).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })) as Tools;
       const history = a.history as Params["messages"];
+      dropOldImages(history);
       history.push({ role: "user", content: a.userText });
       let text = "";
       let rounds = 0;
@@ -125,14 +126,33 @@ export const anthropicProvider: Provider = {
         const results: ToolResult[] = [];
         for (const call of calls) {
           const outcome = await a.callTool(call.name, call.input);
-          results.push(
-            outcome.ok
-              ? { type: "tool_result", tool_use_id: call.id, content: JSON.stringify(outcome.result) }
-              : { type: "tool_result", tool_use_id: call.id, is_error: true, content: JSON.stringify(outcome.error) },
-          );
+          if (!outcome.ok) results.push({ type: "tool_result", tool_use_id: call.id, is_error: true, content: JSON.stringify(outcome.error) });
+          else if (outcome.image) {
+            results.push({
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: [
+                { type: "text", text: JSON.stringify(outcome.result) },
+                { type: "image", source: { type: "base64", media_type: outcome.image.mediaType, data: outcome.image.data } },
+              ],
+            });
+          } else results.push({ type: "tool_result", tool_use_id: call.id, content: JSON.stringify(outcome.result) });
         }
         history.push({ role: "user", content: results });
       }
+    } catch (e) {
+      throw toProviderError(e);
+    }
+  },
+
+  async listModels(s, apiKey, signal) {
+    try {
+      const ids: string[] = [];
+      for await (const m of client(s, apiKey).models.list({ limit: 100 }, { signal })) {
+        ids.push(m.id);
+        if (ids.length >= 500) break;
+      }
+      return ids;
     } catch (e) {
       throw toProviderError(e);
     }
@@ -147,11 +167,36 @@ export const anthropicProvider: Provider = {
       const m = await streamOnce(c, params, signal, () => {});
       const called = m.content.some((b) => b.type === "tool_use" && b.name === PING_TOOL.name && validate(b.input, PING_TOOL.input_schema) === null);
       const fallback = usesFallback(s) ? " Server-side fallback is on: if this model declines a request, Anthropic retries it on another model." : "";
-      return called
-        ? `Connected to ${m.model}. Tool calling works.${fallback}`
-        : `Connected to ${m.model}, but it did not call the test tool; drawing may not work with this model.`;
+      if (!called) return `Connected to ${m.model}, but it did not call the test tool; drawing may not work with this model.`;
+      if (s.vision) {
+        const img = requestParams(s, [{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: "image/png", data: TEST_IMAGE_PNG } },
+          { type: "text", text: "Call the ping tool." },
+        ] }], [PING_TOOL]);
+        img.max_tokens = 1024;
+        img.system = params.system;
+        try {
+          await streamOnce(c, img, signal, () => {});
+        } catch (e) {
+          if (e instanceof Anthropic.BadRequestError) return `Connected to ${m.model}. Tool calling works, but ${NO_VISION_MESSAGE}`;
+          throw e;
+        }
+        return `Connected to ${m.model}. Tool calling and images work.${fallback}`;
+      }
+      return `Connected to ${m.model}. Tool calling works.${fallback}`;
     } catch (e) {
       throw toProviderError(e);
     }
   },
 };
+
+/** Replaces images in earlier turns' tool results with a short note (they are large and stale). */
+function dropOldImages(history: Params["messages"]): void {
+  for (const msg of history) {
+    if (msg.role !== "user" || typeof msg.content === "string") continue;
+    for (const block of msg.content) {
+      if (block.type !== "tool_result" || !Array.isArray(block.content)) continue;
+      block.content = block.content.map((c) => (c.type === "image" ? { type: "text" as const, text: OLD_SNAPSHOT_TEXT } : c));
+    }
+  }
+}

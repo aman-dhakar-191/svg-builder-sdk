@@ -11,12 +11,15 @@ import type { AiApi } from "../shared/api.js";
  */
 
 const TURN_TIMEOUT_MS = 10 * 60_000;
+/** render_snapshot calls allowed per turn: enough to check and fix, not enough to loop. */
+const SNAPSHOTS_PER_TURN = 6;
 
 interface Turn {
   id: string;
   session: LockSession;
   reply: HTMLElement;
   tools: HTMLElement;
+  snapshotBudget: { left: number };
 }
 
 interface Options {
@@ -44,7 +47,7 @@ export class ChatPanel {
       else this.note(e.message);
       this.scroll();
     });
-    o.api.onToolCall((call) => this.runTool(call));
+    o.api.onToolCall((call) => void this.runTool(call));
 
     $("chat-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -63,8 +66,15 @@ export class ChatPanel {
     });
     $("ai-test").addEventListener("click", () => void this.testConnection());
     $("ai-clear-key").addEventListener("click", () => void this.saveSettings(null));
-    this.field<HTMLSelectElement>("format").addEventListener("change", () => this.updateHints());
-    this.field<HTMLInputElement>("baseUrl").addEventListener("input", () => this.updateHints());
+    this.field<HTMLSelectElement>("format").addEventListener("change", () => {
+      this.updateHints();
+      this.loadModelsSoon();
+    });
+    this.field<HTMLInputElement>("baseUrl").addEventListener("input", () => {
+      this.updateHints();
+      this.loadModelsSoon();
+    });
+    $("ai-models-refresh").addEventListener("click", () => void this.loadModels());
     void this.loadSettings();
   }
 
@@ -100,7 +110,7 @@ export class ChatPanel {
     let result: AiRunResult | null = null;
     try {
       await editor.runLocked({ reason: "ai", label: "AI is drawing…", timeoutMs: TURN_TIMEOUT_MS }, async (session) => {
-        this.turn = { id, session, reply, tools };
+        this.turn = { id, session, reply, tools, snapshotBudget: { left: SNAPSHOTS_PER_TURN } };
         // Stop in the lock banner (or the timeout) cancels the model request too.
         session.signal.addEventListener("abort", () => this.o.api.stop(), { once: true });
         result = await this.o.api.run(id, text + context);
@@ -126,19 +136,27 @@ export class ChatPanel {
     }
   }
 
-  private runTool(call: AiToolCall): void {
+  private async runTool(call: AiToolCall): Promise<void> {
     const t = this.turn;
     if (!t || call.turnId !== t.id || !t.session.active) {
       this.o.api.sendToolResult(call.callId, { ok: false, error: { code: "STOPPED", message: "The turn has ended.", hint: "Do not continue." } });
       return;
     }
     const s = t.session;
-    const outcome = dispatch({ doc: s.doc, editor: this.o.editor(), batch: (fn) => s.batch(fn) }, call.name, call.input);
+    const outcome = await dispatch({ doc: s.doc, editor: this.o.editor(), batch: (fn) => s.batch(fn), snapshotBudget: t.snapshotBudget }, call.name, call.input);
     this.o.api.sendToolResult(call.callId, outcome);
     const li = document.createElement("li");
     li.className = outcome.ok ? "ok" : "error";
     li.textContent = outcome.ok ? toolLabel(call.name) : `${toolLabel(call.name)}: ${outcome.error.message}`;
     li.title = JSON.stringify(call.input).slice(0, 500);
+    if (outcome.ok && outcome.image) {
+      // Show what the AI looked at.
+      const img = document.createElement("img");
+      img.className = "chat-snapshot";
+      img.alt = "Snapshot the AI looked at";
+      img.src = `data:${outcome.image.mediaType};base64,${outcome.image.data}`;
+      li.append(img);
+    }
     t.tools.append(li);
     this.scroll();
   }
@@ -183,18 +201,45 @@ export class ChatPanel {
     return this.form.elements.namedItem(name) as T;
   }
 
+  private modelsTimer: ReturnType<typeof setTimeout> | undefined;
+  private modelsRequest = 0;
+
+  private loadModelsSoon(): void {
+    clearTimeout(this.modelsTimer);
+    this.modelsTimer = setTimeout(() => void this.loadModels(), 600);
+  }
+
+  /** Fills the model combo box with what the endpoint offers; typing any name still works. */
+  private async loadModels(): Promise<void> {
+    const n = ++this.modelsRequest;
+    const status = $("ai-models-status");
+    status.textContent = "Loading models…";
+    let r: { ok: boolean; models: string[]; message?: string };
+    try {
+      r = await this.o.api.listModels(this.readForm());
+    } catch (e) {
+      r = { ok: false, models: [], message: ipcMessage(e) };
+    }
+    if (n !== this.modelsRequest) return; // a newer request superseded this one
+    const list = $("ai-models");
+    list.replaceChildren(...r.models.map((m) => Object.assign(document.createElement("option"), { value: m })));
+    status.textContent = r.ok ? (r.models.length ? `${r.models.length} models available: pick one or type a name.` : "The endpoint listed no models; type a name.") : (r.message ?? "Could not list models.");
+  }
+
   private async loadSettings(): Promise<void> {
     this.showSettings(await this.o.api.getSettings());
+    if (this.settings!.hasKey || this.settings!.format === "openai-compatible") void this.loadModels();
     if (!this.settings!.hasKey && this.settings!.format === "anthropic") this.openSettings("Add an API key to start.");
   }
 
   private showSettings(v: AiSettingsView): void {
     this.settings = v;
-    const { format, baseUrl, model, effort } = v;
+    const { format, baseUrl, model, effort, vision } = v;
     this.field<HTMLSelectElement>("format").value = format;
     this.field<HTMLInputElement>("baseUrl").value = baseUrl;
     this.field<HTMLInputElement>("model").value = model;
     this.field<HTMLSelectElement>("effort").value = effort;
+    this.field<HTMLInputElement>("vision").checked = vision;
     const key = this.field<HTMLInputElement>("apiKey");
     key.value = "";
     key.placeholder = v.hasKey ? "Saved (leave empty to keep)" : "Not set";
@@ -209,14 +254,17 @@ export class ChatPanel {
       baseUrl: this.field<HTMLInputElement>("baseUrl").value.trim(),
       model: this.field<HTMLInputElement>("model").value.trim(),
       effort: this.field<HTMLSelectElement>("effort").value as Effort,
+      vision: this.field<HTMLInputElement>("vision").checked,
       ...(key !== undefined ? { apiKey: key } : typed ? { apiKey: typed } : {}),
     };
   }
 
   private async saveSettings(key?: null): Promise<void> {
     try {
+      const typedKey = this.field<HTMLInputElement>("apiKey").value.trim() !== "";
       this.showSettings(await this.o.api.saveSettings(this.readForm(key)));
       this.settingsStatus(key === null ? "API key removed." : "Saved.", false);
+      if (typedKey) void this.loadModels();
     } catch (e) {
       this.settingsStatus(ipcMessage(e), true);
     }

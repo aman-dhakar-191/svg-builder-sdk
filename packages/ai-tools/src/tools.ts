@@ -143,8 +143,35 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "render_snapshot",
+    description:
+      "Returns a PNG picture of the drawing (white background) so you can check your work visually. By default the whole page; pass ids to zoom in on elements (with padding), or region for any rectangle in drawing units. Use it after a change whose look matters, not after every call; snapshots per turn are limited.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: id, minItems: 1, maxItems: 500, description: "Frame these elements." },
+        padding: { type: "number", description: "Space around ids, in drawing units. Default: 10% of their size." },
+        region: {
+          type: "object",
+          properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } },
+          required: ["x", "y", "width", "height"],
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "select_elements",
     description: "Selects elements in the editor so the user sees them highlighted (e.g. what you just changed). Empty list clears the selection.",
     input_schema: { type: "object", properties: { ids: { type: "array", items: id } }, required: ["ids"], additionalProperties: false },
   },
 ];
+
+/** Tools that return images; left out for models without image input. */
+export const VISION_TOOLS: ReadonlySet<string> = new Set(["render_snapshot"]);
+
+/** The tool list for a model, with or without image input. */
+export function toolsFor(options: { vision: boolean }): ToolDefinition[] {
+  return options.vision ? TOOLS : TOOLS.filter((t) => !VISION_TOOLS.has(t.name));
+}

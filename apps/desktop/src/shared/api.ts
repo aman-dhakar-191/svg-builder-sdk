@@ -41,6 +41,8 @@ export interface AiApi {
   saveSettings(update: AiSettingsUpdate): Promise<AiSettingsView>;
   /** Tests the given (possibly unsaved) settings; a missing apiKey means the stored one. */
   test(update: AiSettingsUpdate): Promise<AiTestResult>;
+  /** Models the configured endpoint offers; a missing apiKey means the stored one. */
+  listModels(update: AiSettingsUpdate): Promise<{ ok: boolean; models: string[]; message?: string }>;
   /** Runs one user turn to completion; tool calls arrive through onToolCall meanwhile. */
   run(turnId: string, text: string): Promise<AiRunResult>;
   stop(): void;

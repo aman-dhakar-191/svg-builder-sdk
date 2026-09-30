@@ -105,6 +105,22 @@ export function registerAiIpc(): void {
     }
   });
 
+  ipcMain.handle("ai:listModels", async (_e, raw: unknown): Promise<{ ok: boolean; models: string[]; message?: string }> => {
+    let update;
+    try {
+      update = parseUpdate(raw);
+    } catch (err) {
+      return { ok: false, models: [], message: (err as Error).message };
+    }
+    const key = typeof update.apiKey === "string" && update.apiKey ? update.apiKey : update.apiKey === null ? null : getApiKey();
+    if (update.format === "anthropic" && !key) return { ok: false, models: [], message: "Enter an API key to list models." };
+    try {
+      return { ok: true, models: await providerFor(update).listModels(update, key, AbortSignal.timeout(TEST_TIMEOUT_MS)) };
+    } catch (err) {
+      return { ok: false, models: [], message: err instanceof ProviderError ? err.message : `Could not list models: ${(err as Error).message}` };
+    }
+  });
+
   ipcMain.handle("ai:run", async (e, turnId: unknown, userText: unknown): Promise<AiRunResult> => {
     if (typeof turnId !== "string" || typeof userText !== "string" || !userText.trim()) throw new Error("ai:run: bad arguments");
     const sender = e.sender;

@@ -124,3 +124,22 @@
 |---|---|---|
 | Page | The rendered `<svg>` is drawn as a page: checkerboard (transparency) inside, outlined, on a plain desk colour. | Users could not see where the drawing ends; shapes dragged past it looked cut off. |
 | Off-page shapes | Shown (`overflow: visible`) and still selectable, but dimmed by a mask outside the page. Export and the saved file are unchanged: SVG crops to the viewBox. | Same model as Inkscape/Figma. Revisit: content far off-page is not in the scroll area; a "fit to content" zoom may be needed. |
+
+## Phase 2, step 3: vision loop
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Tool | `render_snapshot` in `packages/ai-tools`: whole page, a region, or elements by id (with padding). PNG through the SDK's `exportPng` with new `region`, `maxSize` (1024 px) and `background` (white) options, so it also works headlessly with any rasterizer. The snapshot includes the turn's uncommitted edits. | Plan: the model verifies its own work. White background because transparent pixels are ambiguous to a model. |
+| Limits | 6 snapshots per turn (on top of the 30 tool rounds per turn); over the limit the tool returns `SNAPSHOT_LIMIT` with a hint to finish. | Plan: cap iterations to prevent loops. |
+| Capability | Setting "Model can see images" (default on). Off: the tool is not offered. Test connection sends a 1x1 PNG when it is on and reports a model that rejects images (HTTP 400/422). | Plan: disable `render_snapshot` for models without image input. Auto-detection would need a request per model change. |
+| Wire format | Anthropic: image inside the `tool_result`. OpenAI-compatible: tool messages are text-only, so the tool result says "attached", and one user message after the tool results carries the images. | |
+| History | Snapshots from earlier turns are replaced by a short note before the next turn. | Keeps requests small; old pictures are stale anyway. |
+| Chat | Each snapshot shows as a thumbnail under its tool line, so the user sees what the AI saw. | |
+| `dispatch` | Now async (snapshots are). | |
+
+## AI settings: model picker and streaming gateways
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Model field | A combo box: the list comes from the endpoint (`GET /v1/models` via the Anthropic SDK; `GET {base}/models` for OpenAI-compatible, also Ollama's `{ models: [{ name }] }`), refreshed when format or URL change; any name can still be typed. | User request. |
+| Streaming gateways | Requests send `stream: false`; if a gateway streams anyway (seen with a local proxy), the SSE chunks are assembled into one reply, tool calls included. | Real failure: "The server's reply is not a Chat Completions response: data: {…chunk…}". |
