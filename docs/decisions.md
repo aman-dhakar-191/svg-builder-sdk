@@ -143,3 +143,11 @@
 |---|---|---|
 | Model field | A combo box: the list comes from the endpoint (`GET /v1/models` via the Anthropic SDK; `GET {base}/models` for OpenAI-compatible, also Ollama's `{ models: [{ name }] }`), refreshed when format or URL change; any name can still be typed. | User request. |
 | Streaming gateways | Requests send `stream: false`; if a gateway streams anyway (seen with a local proxy), the SSE chunks are assembled into one reply, tool calls included. | Real failure: "The server's reply is not a Chat Completions response: data: {…chunk…}". |
+
+## Windows installer
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Wizard | Welcome → location → options (desktop / Start Menu shortcuts) → ready → install → finish with "Launch SVG Editor". Custom pages in `apps/desktop/build/installer.nsh` via electron-builder's NSIS hooks. | User's design. "Launch after install" is only on the finish page; the NSIS progress page shows no percentage. |
+| Scope | Current user only: `%LOCALAPPDATA%\Programs\SVG Editor`, registered under HKCU, no admin prompt. The "for me / for all users" page is skipped (`customInstallMode`). The user can still browse to another folder they can write to. | v0.1.1 installed per machine to `C:\Program Files`, which requires an administrator password. Revisit if IT-managed, machine-wide installs are needed (e.g. an MSI). |
+| CI | Silent install checks the folder, both shortcuts, that nothing was registered machine-wide, runs the installed app, then uninstalls and checks everything is gone. The wizard is also clicked through with a screenshot per page. | |

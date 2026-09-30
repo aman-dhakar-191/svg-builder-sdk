@@ -188,9 +188,9 @@ jobs:
         run: |
           $exe = (Get-ChildItem apps/desktop/release/*.exe).FullName
           & .github/scripts/installer-wizard.ps1 -Installer $exe -OutDir "$env:RUNNER_TEMP\wizard"
-          $u = "C:\Program Files\SVG Editor\Uninstall SVG Editor.exe"
+          $u = "$env:LOCALAPPDATA\Programs\SVG Editor\Uninstall SVG Editor.exe"
           if (Test-Path $u) { Start-Process $u -ArgumentList "/S" -Wait }
-          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\SVG Editor\SVG Editor.exe"); $i++) { Start-Sleep 1 }
+          for ($i = 0; $i -lt 60 -and (Test-Path "$env:LOCALAPPDATA\Programs\SVG Editor\SVG Editor.exe"); $i++) { Start-Sleep 1 }
 
       - name: Upload wizard screenshots
         if: runner.os == 'Windows' && always()
@@ -206,17 +206,22 @@ jobs:
         shell: pwsh
         working-directory: apps/desktop
         run: |
-          $dir = "C:\Program Files\SVG Editor"
+          # Current-user install: no admin rights, nothing machine-wide.
+          $dir = "$env:LOCALAPPDATA\Programs\SVG Editor"
           $exe = (Get-ChildItem release/*.exe).FullName
           Start-Process $exe -ArgumentList "/S" -Wait
           $app = "$dir\SVG Editor.exe"
-          $links = @("$env:PUBLIC\Desktop\SVG Editor.lnk", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\SVG Editor.lnk")
+          $links = @((Join-Path ([Environment]::GetFolderPath("Desktop")) "SVG Editor.lnk"), (Join-Path ([Environment]::GetFolderPath("Programs")) "SVG Editor.lnk"))
           if (-not (Test-Path $app)) {
             Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
               Where-Object DisplayName -like "SVG Editor*" | Format-List DisplayName, InstallLocation, UninstallString
             throw "not installed to $dir"
           }
           foreach ($l in $links) { if (-not (Test-Path $l)) { throw "missing shortcut $l" } }
+          $hklm = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "SVG Editor*"
+          if ($hklm) { throw "registered machine-wide; expected a current-user install" }
+          $hkcu = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object DisplayName -like "SVG Editor*"
+          if (-not $hkcu) { throw "not registered for the current user" }
           $env:PACKAGED_APP = $app
           pnpm exec playwright test e2e/packaged.spec.ts
           if ($LASTEXITCODE -ne 0) { throw "installed app failed its smoke test" }
@@ -224,7 +229,7 @@ jobs:
           for ($i = 0; $i -lt 60 -and (Test-Path $app); $i++) { Start-Sleep 1 }
           if (Test-Path $app) { throw "uninstall left $app" }
           foreach ($l in $links) { if (Test-Path $l) { throw "uninstall left $l" } }
-          Write-Host "Installed to $dir, shortcuts created, app ran, uninstall removed everything."
+          Write-Host "Installed for the current user to $dir, shortcuts created, app ran, uninstall removed everything."
 
       # archive: false uploads the installer itself (no zip); one file per upload.
       - name: Upload installer (Linux)

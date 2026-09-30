@@ -3,6 +3,9 @@
 ; Wizard: Welcome -> Location (built in) -> Additional options -> Ready to install
 ;         -> Installing (built in) -> Finished (built in, with "Launch SVG Editor").
 ;
+; Always installs for the current user (%LOCALAPPDATA%\Programs\SVG Editor), so it
+; never needs admin rights; electron-builder's "for me / for all users" page is skipped.
+;
 ; Shortcuts are created by electron-builder before customInstall runs; the
 ; options page only removes the ones the user unticked. Silent installs (/S)
 ; skip every page and keep both shortcuts.
@@ -18,6 +21,10 @@ Var optStartMenu
 Var chkDesktop
 Var chkStartMenu
 !endif
+
+!macro customInstallMode
+  StrCpy $isForceCurrentInstall "1"
+!macroend
 
 !macro customInit
   StrCpy $optDesktop ${BST_CHECKED}

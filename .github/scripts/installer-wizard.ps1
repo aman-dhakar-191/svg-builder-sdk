@@ -3,7 +3,7 @@
 # reviewed from CI. Usage: installer-wizard.ps1 <installer.exe> <out-dir>
 param([string]$Installer, [string]$OutDir)
 $ErrorActionPreference = "Stop"
-$App = "C:\Program Files\SVG Editor\SVG Editor.exe"
+$App = "$env:LOCALAPPDATA\Programs\SVG Editor\SVG Editor.exe"
 $Proc = "SVG Editor"
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
