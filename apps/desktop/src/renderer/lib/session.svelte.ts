@@ -29,6 +29,8 @@ declare global {
 
 export type Mode = "editor" | "agent";
 export type Theme = "system" | "light" | "dark";
+/** The page under the drawing: always light, always dark, or following the app theme. */
+export type PageColor = "light" | "dark" | "theme";
 export type Overlay = "palette" | "settings" | "start" | "export" | null;
 export interface Status {
   text: string;
@@ -71,6 +73,15 @@ const codeHighlight = HighlightStyle.define([
   { tag: [tags.processingInstruction, tags.documentMeta], color: "var(--muted)" },
 ]);
 
+function readPage(): PageColor {
+  try {
+    const p = localStorage.getItem("page");
+    return p === "dark" || p === "theme" ? p : "light";
+  } catch {
+    return "light";
+  }
+}
+
 function readTheme(): Theme {
   try {
     const t = localStorage.getItem("theme");
@@ -109,6 +120,7 @@ export class Session {
   private manualUpdateCheck = false;
   overlay: Overlay = $state(null);
   theme: Theme = $state(readTheme());
+  page: PageColor = $state(readPage());
   canUndo = $state(false);
   /** The code does not parse (the canvas keeps the last good drawing). */
   codeError: string | null = $state(null);
@@ -710,8 +722,21 @@ export class Session {
     this.applyTheme();
   }
 
+  setPage(page: PageColor): void {
+    this.page = page;
+    try {
+      if (page === "light") localStorage.removeItem("page");
+      else localStorage.setItem("page", page);
+    } catch {
+      // Storage unavailable: the choice lasts for this session only.
+    }
+    this.applyTheme();
+  }
+
   private applyTheme(): void {
     const root = document.documentElement;
+    if (this.page === "theme") delete root.dataset.page;
+    else root.dataset.page = this.page;
     if (this.theme === "system") delete root.dataset.theme;
     else root.dataset.theme = this.theme;
     const dark = this.theme === "dark" || (this.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);

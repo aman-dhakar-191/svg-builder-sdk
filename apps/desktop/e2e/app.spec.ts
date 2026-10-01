@@ -201,3 +201,24 @@ test("Alt+drag on a number in the code pane scrubs it: the canvas follows, one u
   await expect.poll(code).toBe(original);
   await expect(rect).toHaveAttribute("width", "80");
 });
+
+test("the page stays light in the dark theme unless asked, so dark artwork stays readable", async () => {
+  const paper = () => page.locator("#canvas > svg").evaluate((el) => getComputedStyle(el).backgroundColor);
+  const theme = (t: string) => page.evaluate(`window.editor.session.setTheme("${t}")`);
+  // The test profile is shared: start from the default (no saved choice).
+  await page.evaluate(`window.editor.session.setPage("light")`);
+  expect(await page.evaluate(() => localStorage.getItem("page"))).toBeNull();
+  await theme("dark");
+  expect(await paper()).toBe("rgb(255, 255, 255)");
+  await page.locator("#open-settings").click();
+  await page.getByRole("button", { name: "Editor" }).click();
+  await page.locator("#page-color").selectOption("theme");
+  expect(await paper()).toBe("rgb(27, 28, 40)");
+  await page.locator("#page-color").selectOption("dark");
+  await theme("light");
+  expect(await paper()).toBe("rgb(27, 28, 40)");
+  // Remembered across launches; put both back for the other tests.
+  await theme("system");
+  await page.locator("#page-color").selectOption("light");
+  expect(await paper()).toBe("rgb(255, 255, 255)");
+});
