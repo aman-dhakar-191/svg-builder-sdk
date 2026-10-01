@@ -181,6 +181,39 @@ export const TOOLS: ToolDefinition[] = [
     input_schema: { type: "object", properties: { id, tolerance: { type: "number" } }, required: ["id"], additionalProperties: false },
   },
   {
+    name: "animate_elements",
+    description:
+      'Animates elements with a motion preset (stored as SMIL in the SVG, so it plays in browsers and in the editor\'s preview). Entrances play once and stay: "fadeIn", "slideIn" (from: left/right/top/bottom, distance), "popIn" (scales up from nothing), "drawOn" (draws the stroke; needs a stroke, fades a fill in at the end). Loops repeat forever unless repeat says otherwise: "spin" (clockwise), "pulse", "float" (bobs up, distance), "wiggle". Applying a preset again to the same element replaces it; different presets combine (e.g. fadeIn + slideIn). Times are in seconds. stagger delays each next element by that much, for sequences. trigger: "load" (default, when the drawing opens), "click" or "hover".',
+    input_schema: {
+      type: "object",
+      properties: {
+        ids: ids(),
+        preset: { type: "string", enum: ["fadeIn", "slideIn", "popIn", "drawOn", "spin", "pulse", "float", "wiggle"] },
+        duration: { type: "number", description: "Seconds for one run. Defaults: fadeIn/slideIn 0.6, popIn 0.5, drawOn 1.5, spin 2, pulse 1, float 2, wiggle 0.8." },
+        delay: { type: "number", description: "Seconds before it starts. Default 0." },
+        stagger: { type: "number", description: "Extra delay per element, in the order of ids. Default 0." },
+        repeat: { anyOf: [{ type: "number" }, { type: "string", enum: ["indefinite"] }], description: 'Number of runs, or "indefinite".' },
+        trigger: { type: "string", enum: ["load", "click", "hover"] },
+        easing: { type: "string", enum: ["linear", "ease", "easeIn", "easeOut", "easeInOut"] },
+        from: { type: "string", enum: ["left", "right", "top", "bottom"], description: "slideIn only. Default bottom." },
+        distance: { type: "number", description: "slideIn/float: how far, in drawing units. Default: from the element's size." },
+        clockwise: { type: "boolean", description: "spin only. Default true." },
+      },
+      required: ["ids", "preset"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "remove_animations",
+    description: "Removes animations from elements: only those of one preset, or (without preset) all of them, hand-written ones included.",
+    input_schema: {
+      type: "object",
+      properties: { ids: ids(), preset: { type: "string", enum: ["fadeIn", "slideIn", "popIn", "drawOn", "spin", "pulse", "float", "wiggle"] } },
+      required: ["ids"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "set_text",
     description: "Replaces the text content of an element such as <text>.",
     input_schema: { type: "object", properties: { id, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },
@@ -208,7 +241,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: "render_snapshot",
     description:
-      "Returns a PNG picture of the drawing (white background) so you can check your work visually. By default the whole page; pass ids to zoom in on elements (with padding), or region for any rectangle in drawing units. Use it after a change whose look matters, not after every call; snapshots per turn are limited.",
+      "Returns a PNG picture of the drawing (white background) so you can check your work visually. Animations are not played: it shows the drawing at rest. By default the whole page; pass ids to zoom in on elements (with padding), or region for any rectangle in drawing units. Use it after a change whose look matters, not after every call; snapshots per turn are limited.",
     input_schema: {
       type: "object",
       properties: {

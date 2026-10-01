@@ -145,10 +145,10 @@ ipcMain.handle("file:exportPng", async (e, bytes: Uint8Array) => {
 
 ipcMain.handle("file:exportSvg", async (e, text: unknown, style: unknown) => {
   const win = senderWindow(e);
-  if (typeof text !== "string" || (style !== "formatted" && style !== "minified")) throw new Error("exportSvg: bad arguments");
+  if (typeof text !== "string" || (style !== "formatted" && style !== "minified" && style !== "static")) throw new Error("exportSvg: bad arguments");
   const open = stateOf(win).path;
   const base = open?.replace(/\.svg$/i, "") ?? "Untitled";
-  const r = await dialog.showSaveDialog(win, { defaultPath: `${base}.${style === "minified" ? "min" : "formatted"}.svg`, filters: SVG_FILTER });
+  const r = await dialog.showSaveDialog(win, { defaultPath: `${base}.${style === "minified" ? "min" : style}.svg`, filters: SVG_FILTER });
   if (r.canceled || !r.filePath) return { saved: false };
   // Writing over the open file would leave the editor showing text that is no longer on disk.
   if (open && resolve(r.filePath) === resolve(open)) return { saved: false, error: "That is the open file. Export to another name, or use Save." };
@@ -256,6 +256,8 @@ function buildMenu(): void {
           item("Show Grid", "toggleGrid", "CmdOrCtrl+'"),
           item("Snap to Grid", "toggleSnap", "CmdOrCtrl+Shift+'"),
           item("Snap to Shapes", "toggleSnapShapes"),
+          { type: "separator" },
+          item("Play / Pause Animation", "playAnimation"),
           { type: "separator" },
           { role: "toggleDevTools" },
         ],

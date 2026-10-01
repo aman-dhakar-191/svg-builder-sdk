@@ -219,13 +219,14 @@ describe("geometry and bridges", () => {
     expect(ed.doc.pointToRoot(r, [1, 1])).toEqual([102, 2]);
   });
 
-  it("paths need the measure bridge", () => {
+  it("text needs the measure bridge; paths are measured headlessly", () => {
     const ed = createEditor();
-    const p = ed.doc.add("path", { d: "M0 0L10 10" });
+    expect(ed.doc.getBBox(ed.doc.add("path", { d: "M0 0L10 10", transform: "translate(5 0)" }), "root")).toEqual({ x: 5, y: 0, width: 10, height: 10 });
+    const p = ed.doc.addText("Hi", { x: 0, y: 10 });
     expectError(() => ed.doc.getBBox(p, "root"), "BBOX_UNAVAILABLE");
     ed.setBridges({ measure: (id) => (id === p ? { x: 0, y: 0, width: 10, height: 10 } : null) });
     expect(ed.doc.getBBox(p, "root")).toEqual({ x: 0, y: 0, width: 10, height: 10 });
-    expect(ed.selectInRect({ x: -1, y: -1, width: 20, height: 20 })).toEqual([p]);
+    expect(ed.selectInRect({ x: -1, y: -1, width: 20, height: 20 })).toContain(p);
   });
 
   it("exportPng uses the rasterizer bridge at the drawing's size", async () => {
@@ -290,6 +291,53 @@ describe("exportPng options", () => {
     const ed = createEditor();
     capture(ed);
     await expect(ed.exportPng({ region: { x: 0, y: 0, width: 0, height: 5 } })).rejects.toMatchObject({ code: "INVALID_REGION" });
+  });
+});
+
+describe("animation", () => {
+  it("animates several elements with a stagger in one undo step, and reads it back", () => {
+    const ed = createEditor({ svg: SRC });
+    const r = ed.doc.query({ tag: "rect" })[0]!;
+    const c = ed.doc.add("circle", { cx: 50, cy: 20, r: 5 });
+    const before = ed.text;
+    const ids = ed.doc.animate([r, c], "fadeIn", { delay: 0.2, stagger: 0.3 });
+    expect(ids).toHaveLength(2);
+    expect(ed.doc.getAnimations(c)).toEqual([
+      { id: ids[1], tag: "animate", target: c, preset: "fadeIn", attribute: "opacity", trigger: "load", delay: 0.5, duration: 0.6, repeat: 1 },
+    ]);
+    expect(ed.doc.getAnimations()).toHaveLength(2);
+    expect(ed.doc.timelineDuration()).toBe(1.1);
+    // Minimal patch: the rect's self-closing tag opens to hold the animation, indented.
+    expect(ed.text).toContain(`<rect x='1' y="2" width="10" height="5">\n    <animate attributeName="opacity"`);
+    ed.undo();
+    expect(ed.doc.getAnimations()).toHaveLength(0);
+    ed.redo();
+    expect(ed.doc.removeAnimations([r, c])).toBe(2);
+    ed.undo();
+    expect(ed.doc.getAnimations()).toHaveLength(2);
+    ed.undo();
+    expect(ed.text).toBe(before);
+  });
+
+  it("centres text motion with the measure bridge", () => {
+    const ed = createEditor();
+    const g = ed.doc.add("g", { transform: "translate(100 0)" });
+    const t = ed.doc.addText("Hi", { x: 0, y: 10 }, { parent: g });
+    expectError(() => ed.doc.animate(t, "spin"), "BBOX_UNAVAILABLE");
+    ed.setBridges({ measure: (id) => (id === t ? { x: 100, y: 0, width: 20, height: 10 } : null) });
+    ed.doc.animate(t, "spin");
+    expect(ed.doc.getNode(ed.doc.getNode(t).children[1]!).attrs.values).toBe("0 10 5;360 10 5");
+  });
+
+  it("exports PNGs at rest; toSvg({ static }) leaves animations out", async () => {
+    let seen = "";
+    const ed = createEditor({ svg: SRC, rasterize: async (svg) => ((seen = svg), new Uint8Array([1])) });
+    ed.doc.animate(ed.doc.query({ tag: "rect" }), "pulse");
+    await ed.exportPng();
+    expect(seen).toContain("<rect");
+    expect(seen).not.toContain("animateTransform");
+    expect(ed.toSvg()).toContain("animateTransform");
+    expect(ed.toSvg({ static: true })).not.toContain("animateTransform");
   });
 });
 

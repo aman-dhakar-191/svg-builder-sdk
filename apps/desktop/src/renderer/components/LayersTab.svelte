@@ -9,7 +9,8 @@
   import Square from "@lucide/svelte/icons/square";
   import Shapes from "@lucide/svelte/icons/shapes";
   import Type from "@lucide/svelte/icons/type";
-  import { TEXT_TAG, type Command, type NodeId, type TreeNode } from "@svg-editor/sdk";
+  import Zap from "@lucide/svelte/icons/zap";
+  import { ANIMATION_TAGS, TEXT_TAG, type Command, type NodeId, type TreeNode } from "@svg-editor/sdk";
   import { session } from "../lib/session.svelte.js";
 
   /** Elements that can hold other elements (targets for "drop inside"). */
@@ -23,12 +24,14 @@
 
   const rows = $derived.by(() => {
     void session.docVersion;
-    const out: { n: TreeNode; depth: number; hasKids: boolean }[] = [];
+    const out: { n: TreeNode; depth: number; hasKids: boolean; motion: number }[] = [];
+    // Animations are shown as a badge on the element they animate, not as layers.
     const walk = (n: TreeNode, depth: number) => {
       for (const c of n.children) {
-        if (c.tag === TEXT_TAG) continue;
-        const hasKids = c.children.some((k) => k.tag !== TEXT_TAG);
-        out.push({ n: c, depth, hasKids });
+        if (c.tag === TEXT_TAG || ANIMATION_TAGS.has(c.tag)) continue;
+        const hasKids = c.children.some((k) => k.tag !== TEXT_TAG && !ANIMATION_TAGS.has(k.tag));
+        const motion = new Set(c.children.filter((k) => ANIMATION_TAGS.has(k.tag)).map((k) => k.attrs["data-motion"] ?? k.id)).size;
+        out.push({ n: c, depth, hasKids, motion });
         if (!collapsed.has(c.id)) walk(c, depth + 1);
       }
     };
@@ -96,7 +99,7 @@
 </script>
 
 <div id="layers" role="tree" aria-label="Layers" bind:this={list}>
-  {#each rows as { n, depth, hasKids } (n.id)}
+  {#each rows as { n, depth, hasKids, motion } (n.id)}
     {@const Icon = ICONS[n.tag] ?? Shapes}
     <div
       class="layer-row"
@@ -128,6 +131,7 @@
       <span class="ico"><Icon size={14} /></span>
       <span class="layer-tag">{n.tag}</span>
       <span class="layer-label">{describe(n)}</span>
+      {#if motion > 0}<span class="motion-badge" title="{motion} animation{motion === 1 ? '' : 's'}" aria-label="{motion} animation{motion === 1 ? '' : 's'}"><Zap size={12} /></span>{/if}
       <button class="vis" aria-label={n.attrs.display === "none" ? "Show" : "Hide"} title={n.attrs.display === "none" ? "Show" : "Hide"} onclick={(e) => { e.stopPropagation(); toggleHidden(n); }}>
         {#if n.attrs.display === "none"}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
       </button>
@@ -152,6 +156,7 @@
   .ico { color: var(--muted); display: inline-grid; flex: none; }
   .layer-tag { font: 12px var(--f-mono); }
   .layer-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .motion-badge { color: var(--ink); display: inline-grid; flex: none; }
   .vis { opacity: 0; border: 0; background: none; color: var(--muted); width: 24px; height: 24px; border-radius: 5px; display: grid; place-items: center; transition: opacity var(--fast); flex: none; }
   .layer-row:hover .vis, .layer-row.hidden-el .vis, .vis:focus-visible { opacity: 1; }
   .vis:hover { background: var(--panel); color: var(--fg); }

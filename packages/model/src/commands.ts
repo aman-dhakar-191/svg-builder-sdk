@@ -1,3 +1,4 @@
+import { ANIMATION_TAGS, buildMotion, MotionError, type MotionPreset } from "./animation.js";
 import { CommandFailure, fail } from "./errors.js";
 import { booleanPaths, countNodes, simplifyPathData, type BooleanOperation } from "./boolean.js";
 import {
@@ -405,7 +406,8 @@ function setText(ctx: CommandContext, cmd: Record<string, unknown>): CommandResu
     else if (node.text !== text) ctx.apply({ kind: "text", id, text });
     return { id };
   }
-  const elementChild = node.children.find((c) => ctx.get(c)!.tag !== TEXT_TAG);
+  const isAnimation = (c: NodeId) => ANIMATION_TAGS.has(ctx.get(c)!.tag);
+  const elementChild = node.children.find((c) => ctx.get(c)!.tag !== TEXT_TAG && !isAnimation(c));
   if (elementChild) {
     fail(
       "HAS_ELEMENT_CHILDREN",
@@ -413,8 +415,9 @@ function setText(ctx: CommandContext, cmd: Record<string, unknown>): CommandResu
       "Call setText on a specific text node or <tspan>, or delete the child elements first.",
     );
   }
-  const [firstText, ...extra] = node.children;
-  for (const c of extra) ctx.apply({ kind: "remove", id: c });
+  // Animation children stay; the text goes before them.
+  const [firstText, ...extra] = node.children.filter((c) => !isAnimation(c));
+  for (const c of extra) removeNode(ctx, c);
   if (firstText === undefined) {
     if (text !== "") {
       ctx.apply({ kind: "insert", parent: id, index: 0, nodes: [{ id: ctx.newId(), tag: TEXT_TAG, attrs: {}, children: [], parent: id, text }] });
@@ -630,6 +633,91 @@ function simplify(ctx: CommandContext, cmd: Record<string, unknown>): CommandRes
   return { id, d, nodes: { before: countNodes(before), after: countNodes(d) } };
 }
 
+/** The effective value of an inherited paint property (attribute or style), walking up the tree. */
+function paintOf(ctx: CommandContext, node: SvgNode, prop: "fill" | "stroke"): string | null {
+  const re = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;!]+)`);
+  for (let n: SvgNode | undefined = node; n; n = n.parent ? ctx.get(n.parent) : undefined) {
+    const fromStyle = re.exec(n.attrs.style ?? "")?.[1]?.trim();
+    const v = fromStyle ?? n.attrs[prop];
+    if (v !== undefined && v.trim() !== "inherit") return v.trim();
+  }
+  return null;
+}
+
+function removeMotion(ctx: CommandContext, node: SvgNode, preset?: string): number {
+  const doomed = node.children.filter((c) => {
+    const child = ctx.get(c)!;
+    return ANIMATION_TAGS.has(child.tag) && (preset === undefined || child.attrs["data-motion"] === preset);
+  });
+  const hadDrawOn = doomed.some((c) => ctx.get(c)!.attrs["data-motion"] === "drawOn");
+  for (const c of doomed) removeNode(ctx, c);
+  // drawOn set pathLength="1"; it goes with it.
+  const current = ctx.get(node.id)!;
+  if (hadDrawOn && current.attrs.pathLength === "1") {
+    const { pathLength: _, ...rest } = current.attrs;
+    setAttrs(ctx, current, rest);
+  }
+  return doomed.length;
+}
+
+function animate(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["animate"] {
+  const id = requireString(cmd.id, "id", "animate");
+  const node = getElement(ctx, id, "animate");
+  notRoot(ctx, id, "animate");
+  if (ANIMATION_TAGS.has(node.tag)) fail("NOT_ANIMATABLE", `animate: "${id}" is itself an <${node.tag}>.`, "Animate the element it belongs to (its parent).");
+  if (typeof cmd.preset !== "string") fail("INVALID_COMMAND", 'animate: "preset" must be a string.', 'Example: { op: "animate", id: "n_3", preset: "fadeIn", duration: 0.6 }.');
+  let box = null;
+  if (cmd.box !== undefined) {
+    const b = cmd.box;
+    if (!isRecord(b) || !["x", "y", "width", "height"].every((k) => typeof b[k] === "number" && Number.isFinite(b[k]))) {
+      fail("INVALID_COMMAND", 'animate: "box" must be { x, y, width, height } with finite numbers.', "Omit it to let the model measure the element.");
+    }
+    box = { x: b.x as number, y: b.y as number, width: b.width as number, height: b.height as number };
+  } else {
+    const r = ctx.bbox(id);
+    if (r.ok) box = r.bbox;
+  }
+  const { op: _op, id: _id, preset: _preset, box: _box, ...options } = cmd;
+  const known = ["duration", "delay", "repeat", "trigger", "easing", "from", "distance", "clockwise"];
+  const unknown = Object.keys(options).find((k) => !known.includes(k));
+  if (unknown) fail("INVALID_COMMAND", `animate: unknown option "${unknown}".`, `Options: ${known.join(", ")}.`);
+  // Paint from a stylesheet class is not resolved here; give such elements the benefit of the doubt.
+  const classed = (n: SvgNode | undefined): boolean => !!n && (n.attrs.class !== undefined || classed(n.parent ? ctx.get(n.parent) : undefined));
+  let built;
+  try {
+    built = buildMotion(cmd.preset as MotionPreset, options, {
+      tag: node.tag,
+      attrs: node.attrs,
+      box,
+      stroke: paintOf(ctx, node, "stroke") ?? (classed(node) ? "currentColor" : null),
+      fill: paintOf(ctx, node, "fill"),
+    });
+  } catch (e) {
+    if (e instanceof MotionError) fail(e.code, `animate: ${e.message}`, e.hint);
+    throw e;
+  }
+  const preset = cmd.preset as MotionPreset;
+  // Replace the preset if the element has it already; keep pathLength for drawOn.
+  const doomed = node.children.filter((c) => ctx.get(c)!.attrs["data-motion"] === preset && ANIMATION_TAGS.has(ctx.get(c)!.tag));
+  for (const c of doomed) removeNode(ctx, c);
+  const current = ctx.get(id)!;
+  setAttrs(ctx, current, { ...current.attrs, ...built.targetAttrs });
+  const ids: NodeId[] = [];
+  for (const el of built.elements) {
+    const cid = ctx.newId();
+    ctx.apply({ kind: "insert", parent: id, index: ctx.get(id)!.children.length, nodes: [{ id: cid, tag: el.tag, attrs: el.attrs, children: [], parent: id }] });
+    ids.push(cid);
+  }
+  return { id, preset, ids };
+}
+
+function removeAnimations(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["removeAnimations"] {
+  const id = requireString(cmd.id, "id", "removeAnimations");
+  const node = getElement(ctx, id, "removeAnimations");
+  if (cmd.preset !== undefined && typeof cmd.preset !== "string") fail("INVALID_COMMAND", 'removeAnimations: "preset" must be a string.', "Omit it to remove all of the element's animations.");
+  return { id, removed: removeMotion(ctx, node, cmd.preset as string | undefined) };
+}
+
 const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown>) => unknown> = {
   add,
   set,
@@ -646,6 +734,8 @@ const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown
   convertToPath,
   boolean: booleanOp,
   simplify,
+  animate,
+  removeAnimations,
 };
 
 /** Runs one command. Throws CommandFailure; the caller rolls back partial changes. */

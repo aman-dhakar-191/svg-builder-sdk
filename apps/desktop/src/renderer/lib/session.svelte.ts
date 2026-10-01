@@ -5,7 +5,7 @@ import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { createEditor, EMPTY_SVG, SvgEditorError, type AbortSignalLike, type Editor, type LockInfo, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
+import { createEditor, EMPTY_SVG, PRESET_INFO, SvgEditorError, type AbortSignalLike, type AnimateOptions, type Editor, type LockInfo, type MotionPreset, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
 import type { DesktopApi, MenuAction, SvgExportStyle, UpdateState } from "../../shared/api.js";
 import { CanvasController, type Tool } from "../canvas.js";
 import { selectionHighlight, setHighlights } from "../highlight.js";
@@ -113,6 +113,10 @@ export class Session {
   /** The code does not parse (the canvas keeps the last good drawing). */
   codeError: string | null = $state(null);
   canRedo = $state(false);
+  /** Animation preview: its length (0 = the drawing has none), whether it plays, where it is (null = at rest). */
+  motionEnd = $state(0);
+  playing = $state(false);
+  playTime: number | null = $state(null);
 
   // ------------------------------------------------------------ engine
   readonly view: EditorView;
@@ -208,6 +212,11 @@ export class Session {
     });
     this.canvas.snapper = this.viewport;
     this.canvas.onActiveNode = (n) => (this.activeNode = n);
+    this.canvas.onPlayback = (p) => {
+      this.motionEnd = this.canvas?.playback.end ?? 0;
+      this.playing = p.playing;
+      this.playTime = p.time;
+    };
     this.canvas.onNodeError = (message) => this.showStatus(message, true);
     this.canvas.onNodeEdit = (on) => {
       this.nodeEditing = on;
@@ -518,7 +527,7 @@ export class Session {
   /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
   svgText(style: SvgExportStyle): string {
     this.flush();
-    return this.editor.toSvg({ pretty: style === "formatted" }) + (style === "formatted" ? "\n" : "");
+    return this.editor.toSvg({ pretty: style !== "minified", static: style === "static" }) + (style === "minified" ? "" : "\n");
   }
 
   async exportSvg(style: SvgExportStyle): Promise<void> {
@@ -618,6 +627,54 @@ export class Session {
     });
   }
 
+  // ------------------------------------------------------------ motion
+
+  /** Adds a motion preset to the selection (one undo step) and previews it. */
+  animate(preset: MotionPreset, options: AnimateOptions = {}): void {
+    this.guard(() => {
+      this.flush();
+      const ids = this.editor.getSelection();
+      if (ids.length === 0) return this.showStatus("Select the shapes to animate first.", true);
+      try {
+        this.editor.doc.animate(ids, preset, options);
+      } catch (e) {
+        return this.showStatus(e instanceof SvgEditorError ? `${e.message} ${e.hint}` : String(e), true);
+      }
+      this.showStatus(`${PRESET_INFO[preset].label} added${ids.length > 1 ? ` to ${ids.length} shapes` : ""}. Ctrl+Z to undo.`, false);
+      if (!reducedMotion()) this.canvas?.playback.play();
+    });
+  }
+
+  /** Removes motion from the selection: one preset, or all of it. */
+  removeMotion(preset?: string): void {
+    this.guard(() => {
+      this.flush();
+      try {
+        const n = this.editor.doc.removeAnimations(this.editor.getSelection(), preset);
+        this.showStatus(n ? "Motion removed. Ctrl+Z to undo." : "Nothing to remove.", false);
+      } catch (e) {
+        this.showStatus(e instanceof Error ? e.message : String(e), true);
+      }
+    });
+  }
+
+  togglePlay(): void {
+    const p = this.canvas?.playback;
+    if (!p) return;
+    if (p.end <= 0) return this.showStatus("Nothing to play: add motion in the Design panel first.", false);
+    if (p.playing) p.pause();
+    else p.play();
+  }
+
+  seekMotion(t: number): void {
+    this.canvas?.playback.seek(t);
+  }
+
+  /** Back to the resting drawing (the end of the timeline), where editing happens. */
+  restMotion(): void {
+    this.canvas?.playback.rest();
+  }
+
   // ------------------------------------------------------------ view
 
   setMode(mode: Mode): void {
@@ -687,6 +744,7 @@ export class Session {
     toggleGrid: () => this.viewport?.toggleGrid(),
     toggleSnap: () => this.viewport?.toggleSnap(),
     toggleSnapShapes: () => this.toggleSnapShapes(),
+    playAnimation: () => this.togglePlay(),
     checkUpdates: () => this.checkForUpdates(),
     undo: () => void this.undo(),
     redo: () => void this.redo(),

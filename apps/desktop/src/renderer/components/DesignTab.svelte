@@ -13,11 +13,12 @@
   import SquaresUnite from "@lucide/svelte/icons/squares-unite";
   import Waves from "@lucide/svelte/icons/waves";
   import X from "@lucide/svelte/icons/x";
-  import { TEXT_TAG, type BBox, type NodeId } from "@svg-editor/sdk";
+  import { ANIMATION_TAGS, TEXT_TAG, type BBox, type NodeId } from "@svg-editor/sdk";
   import { slide } from "../lib/motion.js";
   import { agent } from "../lib/agent.svelte.js";
   import { session } from "../lib/session.svelte.js";
   import ColorField from "./ColorField.svelte";
+  import MotionSection from "./MotionSection.svelte";
   import ScrubField from "./ScrubField.svelte";
   import Tip from "./Tip.svelte";
 
@@ -40,7 +41,7 @@
   });
   const text = $derived.by(() => {
     if (!node || !TEXT_HOSTS.includes(node.tag)) return null;
-    const kids = node.children.map((c) => doc.getNode(c));
+    const kids = node.children.map((c) => doc.getNode(c)).filter((k) => !ANIMATION_TAGS.has(k.tag));
     return kids.every((k) => k.tag === TEXT_TAG) ? kids.map((k) => k.text ?? "").join("") : null;
   });
   /** Colours already used in the drawing, most used first: the palette to pick from. */
@@ -126,6 +127,7 @@
   </section>
   <section class="sec"><h3 class="eyebrow">Align</h3>{@render alignRow(false)}</section>
   <section class="sec"><h3 class="eyebrow">Combine</h3>{@render combineRow(ids.length)}</section>
+  <MotionSection {ids} />
 {:else if node}
   <section class="sec">
     <h3 class="title"><span class="tag">&lt;{node.tag}&gt;</span>{#if node.attrs.id}<span class="idname">#{node.attrs.id}</span>{/if}</h3>
@@ -187,6 +189,8 @@
       <textarea class="input area" rows="2" value={text} aria-label="Text content" onchange={(e) => setText((e.target as HTMLTextAreaElement).value)}></textarea>
     </section>
   {/if}
+
+  <MotionSection {ids} />
 
   <section class="sec"><h3 class="eyebrow">Combine</h3>{@render combineRow(1)}<p class="hint">Select two or more shapes to combine them.</p></section>
 

@@ -17,6 +17,7 @@ export type MenuAction =
   | "toggleGrid"
   | "toggleSnap"
   | "toggleSnapShapes"
+  | "playAnimation"
   | "checkUpdates"
   | "simulateAiTurn"
   | "convertToPath"
@@ -69,8 +70,8 @@ export interface UpdateApi {
   onState(listener: (state: UpdateState) => void): void;
 }
 
-/** SVG export styles: re-indented, or with no whitespace between tags. */
-export type SvgExportStyle = "formatted" | "minified";
+/** SVG export styles: re-indented, with no whitespace between tags, or re-indented without animations. */
+export type SvgExportStyle = "formatted" | "minified" | "static";
 
 export interface DesktopApi {
   platform: string;

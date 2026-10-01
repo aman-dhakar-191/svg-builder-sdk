@@ -245,7 +245,7 @@ describe("transform", () => {
 
   it("reports specific errors", () => {
     const r = add("rect");
-    const p = add("path", { d: "M0 0L10 10" });
+    const p = add("text", {});
     const bad = add("rect", { transform: "wobble(3)" });
     expect(expectNoChange(doc, { op: "transform", id: r }).code).toBe("EMPTY_TRANSFORM");
     expect(expectNoChange(doc, { op: "transform", id: r, translate: [1] }).code).toBe("INVALID_COMMAND");
