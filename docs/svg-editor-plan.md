@@ -237,6 +237,10 @@ editor.toSvg({ pretty: true });
 - Surface failed AI commands clearly in chat.
 - Node editing, deferred from Step 4 (user's call, for the final app polish): add a node (double-click on the outline), delete a node (select + Delete), change a node between corner and smooth, change a segment between line and curve. **Done:** `pathNode`, see decisions.md.
 
+**Step 6: Motion (user's request)**
+- First part (**done**, see decisions.md "Motion"): SMIL storage, presets (`animate` / `removeAnimations` commands), canvas preview and scrubbing, Design > Motion, still SVG / PNG export, agent tools, headless path bboxes.
+- Next: a timeline panel (bars per element, drag to retime), export to video / GIF / animated WebP, CSS animation output, motion along a path.
+
 ## 11. CLAUDE.md (drop this in the repo root for Claude Code)
 
 ```md

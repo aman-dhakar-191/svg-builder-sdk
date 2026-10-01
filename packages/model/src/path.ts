@@ -563,3 +563,48 @@ export function nearestOnPath(segs: PathSegment[], to: Vec2): { seg: number; t: 
   });
   return best;
 }
+
+/** Roots in [0, 1] of a t^2 + b t + c (the derivative of one coordinate of a Bézier). */
+function unitRoots(a: number, b: number, c: number): number[] {
+  const inUnit = (t: number) => t > 0 && t < 1;
+  if (Math.abs(a) < 1e-12) return Math.abs(b) < 1e-12 ? [] : [-c / b].filter(inUnit);
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return [];
+  const s = Math.sqrt(disc);
+  return [(-b + s) / (2 * a), (-b - s) / (2 * a)].filter(inUnit);
+}
+
+/**
+ * Bounding box of the outline (like DOM getBBox: control points outside the
+ * curve do not count). Exact for lines and Béziers; arcs are sampled.
+ * Null when nothing is drawn.
+ */
+export function pathBBox(segs: PathSegment[]): { x: number; y: number; width: number; height: number } | null {
+  const pts: Vec2[] = [];
+  segs.forEach((s, i) => {
+    if (s.cmd === "M" || s.cmd === "Z") return;
+    const start = segmentStart(segs, i);
+    pts.push(start, s.p);
+    const ts: number[] = [];
+    if (s.cmd === "Q") {
+      for (const k of [0, 1] as const) {
+        const den = start[k] - 2 * s.c[k] + s.p[k];
+        if (Math.abs(den) > 1e-12) ts.push(...[(start[k] - s.c[k]) / den].filter((t) => t > 0 && t < 1));
+      }
+    } else if (s.cmd === "C") {
+      for (const k of [0, 1] as const) {
+        const [p0, p1, p2, p3] = [start[k], s.c1[k], s.c2[k], s.p[k]];
+        ts.push(...unitRoots(3 * (-p0 + 3 * p1 - 3 * p2 + p3), 6 * (p0 - 2 * p1 + p2), 3 * (p1 - p0)));
+      }
+    } else if (s.cmd === "A") {
+      for (let k = 1; k < 64; k++) ts.push(k / 64);
+    }
+    for (const t of ts) pts.push(pointOnSegment(segs, i, t));
+  });
+  if (pts.length === 0) return null;
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}

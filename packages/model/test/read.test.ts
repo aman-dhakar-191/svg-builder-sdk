@@ -121,6 +121,29 @@ describe("getBBox", () => {
     expect(ok(doc.getBBox(g))).toEqual({ x: 0, y: 0, width: 30, height: 15 });
   });
 
+  it("measures paths by their outline, not their control points", () => {
+    const box = (d: string) => ok(doc.getBBox(ok(doc.execute({ op: "add", tag: "path", attrs: { d } })).id));
+    expect(box("M10 10 H50 V30 Z")).toEqual({ x: 10, y: 10, width: 40, height: 20 });
+    // The curve peaks at y = 75 (3/4 of the way to its handles).
+    const c = box("M0 100 C0 0 100 0 100 100");
+    expect(c.x).toBe(0);
+    expect(c.width).toBe(100);
+    expect(c.y).toBeCloseTo(25, 9);
+    expect(c.height).toBeCloseTo(75, 9);
+    expect(box("M0 0 Q50 100 100 0").height).toBeCloseTo(50, 9);
+    const arc = box("M0 50 A50 50 0 0 1 100 50");
+    expect(arc.y).toBeCloseTo(0, 1);
+    expect(arc.width).toBeCloseTo(100, 6);
+  });
+
+  it("skips animations and other non-drawing children of groups", () => {
+    const g = ok(doc.execute({ op: "add", tag: "g", attrs: {} })).id;
+    ok(doc.execute({ op: "add", tag: "title", parent: g, attrs: {} }));
+    ok(doc.execute({ op: "add", tag: "rect", parent: g, attrs: { width: "10", height: "10" } }));
+    ok(doc.execute({ op: "add", tag: "animateTransform", parent: g, attrs: { attributeName: "transform", type: "rotate" } }));
+    expect(ok(doc.getBBox(g))).toEqual({ x: 0, y: 0, width: 10, height: 10 });
+  });
+
   it("explains what it cannot compute", () => {
     const p = ok(doc.execute({ op: "add", tag: "path", attrs: { d: "M0 0" } })).id;
     const pct = ok(doc.execute({ op: "add", tag: "rect", attrs: { width: "50%", height: "1" } })).id;

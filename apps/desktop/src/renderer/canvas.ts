@@ -18,6 +18,7 @@ import {
   type Point,
   type Rect,
 } from "./geometry.js";
+import { Playback } from "./playback.js";
 import { renderTree } from "./render.js";
 
 export type Tool = "select" | "rect" | "ellipse" | "line" | "text";
@@ -90,6 +91,10 @@ export class CanvasController {
   private guides: { x?: { at: number; from: number; to: number }; y?: { at: number; from: number; to: number } } | null = null;
   /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
   private hover: NodeId | null = null;
+  /** SMIL preview; between previews the drawing rests at the end of its timeline. */
+  readonly playback = new Playback();
+  /** Told when playback starts, stops or moves. */
+  onPlayback: (state: { playing: boolean; time: number | null }) => void = () => {};
 
   constructor(
     private readonly host: HTMLElement,
@@ -110,6 +115,10 @@ export class CanvasController {
     host.addEventListener("keydown", (e) => this.keyDown(e));
     new ResizeObserver(() => this.drawOverlay()).observe(host);
     host.addEventListener("scroll", () => this.drawOverlay());
+    this.playback.onChange = (state) => {
+      this.drawOverlay();
+      this.onPlayback(state);
+    };
   }
 
   /** Switches to another document (after Open / New). Gestures reset. */
@@ -339,7 +348,13 @@ export class CanvasController {
     try {
       const b = el.getBBox();
       const toRoot = invert(mat(rootCtm));
-      const r = boundsOf(corners({ x: b.x, y: b.y, width: b.width, height: b.height }).map((p) => apply(toRoot, apply(mat(ctm), p))));
+      // During a preview the DOM's transforms are animated: measure the resting drawing through the model instead.
+      const previewing = this.playback.playing || this.playback.time !== null;
+      const r = boundsOf(corners({ x: b.x, y: b.y, width: b.width, height: b.height }).map((p) => {
+        if (!previewing) return apply(toRoot, apply(mat(ctm), p));
+        const [x, y] = this.editor.doc.pointToRoot(id, [p.x, p.y]);
+        return { x, y };
+      }));
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     } catch {
       return null;
@@ -359,6 +374,8 @@ export class CanvasController {
     };
     walk(svg);
     this.host.replaceChildren(svg);
+    this.playback.end = previewEnd(this.editor);
+    this.playback.attach(svg);
     // The document changed (an undo, a drag): refresh what the inspector shows for the selected point.
     if (this.nodeEdit !== null && this.activeNode !== null) {
       try {
@@ -464,6 +481,8 @@ export class CanvasController {
     const local = (p: Point): Point => ({ x: p.x - origin.left, y: p.y - origin.top });
     const keep = this.gesture?.kind === "marquee" ? this.gesture.rect : null;
     o.replaceChildren(...(keep ? [keep] : []));
+    // A preview shows the motion, not the handles (they would sit on the resting shapes).
+    if (this.playback.time !== null || this.playback.playing) return;
     if (this.nodeEdit !== null) {
       this.drawNodes(o, local);
       return;
@@ -514,6 +533,8 @@ export class CanvasController {
       return;
     }
     if (e.button !== 0) return;
+    // Editing again: leave the preview for the resting drawing the handles belong to.
+    if (this.playback.time !== null || this.playback.playing) this.playback.rest();
     if (this.textInput) this.commitText();
     this.host.focus({ preventScroll: true });
     const node = e.target instanceof Element ? e.target.getAttribute("data-node") : null;
@@ -953,4 +974,14 @@ function isSmooth(segs: PathSegment[], seg: number): boolean {
   if (s?.cmd === "C") return oppositeHandle(segs, seg, "c2") !== null;
   const next = segs[seg + 1];
   return next?.cmd === "C" ? oppositeHandle(segs, seg + 1, "c1") !== null : false;
+}
+
+/** Seconds until every animation has played once, click and hover ones counted from their delay. */
+export function previewEnd(editor: Editor): number {
+  let end = 0;
+  for (const a of editor.doc.getAnimations()) {
+    if (a.duration === null) continue;
+    end = Math.max(end, a.delay + a.duration * (a.repeat === "indefinite" ? 1 : a.repeat));
+  }
+  return Math.round(end * 1000) / 1000;
 }

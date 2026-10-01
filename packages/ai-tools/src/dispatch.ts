@@ -1,4 +1,4 @@
-import { SvgEditorError, TEXT_TAG, type BBox, type DocumentApi, type Editor, type NodeId, type PathMove, type PathNodeOp, type TreeNode } from "@svg-editor/sdk";
+import { ANIMATION_TAGS, SvgEditorError, TEXT_TAG, type AnimateOptions, type BBox, type DocumentApi, type Editor, type MotionPreset, type NodeId, type PathMove, type PathNodeOp, type TreeNode } from "@svg-editor/sdk";
 import { TOOLS } from "./tools.js";
 import { validate } from "./validate.js";
 
@@ -87,13 +87,16 @@ const HANDLERS: Record<string, Handler> = {
     const outline = (n: TreeNode): unknown => {
       count++;
       const kids: unknown[] = [];
+      const motion = new Set<string>();
       let text = "";
       for (const c of n.children) {
         if (c.tag === TEXT_TAG) text += c.text ?? "";
+        // Preset animations are listed by name; hand-written ones stay in the outline.
+        else if (ANIMATION_TAGS.has(c.tag) && c.attrs["data-motion"]) motion.add(c.attrs["data-motion"]);
         else if (count < MAX_OUTLINE_NODES) kids.push(outline(c));
         else truncated = true;
       }
-      return { id: n.id, tag: n.tag, attributes: shortAttrs(n.attrs), ...(text ? { text } : {}), ...(kids.length ? { children: kids } : {}) };
+      return { id: n.id, tag: n.tag, attributes: shortAttrs(n.attrs), ...(text ? { text } : {}), ...(motion.size ? { motion: [...motion] } : {}), ...(kids.length ? { children: kids } : {}) };
     };
     const tree = doc.getTree();
     return {
@@ -102,6 +105,7 @@ const HANDLERS: Record<string, Handler> = {
       selection: t.editor.getSelection(),
       element_count: doc.query().length - 1,
       outline: tree.children.filter((c) => c.tag !== TEXT_TAG).map(outline),
+      ...(doc.timelineDuration() > 0 ? { animation_seconds: doc.timelineDuration() } : {}),
       ...(truncated ? { truncated: `Only the first ${MAX_OUTLINE_NODES} elements are listed; use query_elements for the rest.` } : {}),
     };
   },
@@ -228,6 +232,14 @@ const HANDLERS: Record<string, Handler> = {
     const r = t.doc.simplify(input.id, input.tolerance === undefined ? {} : { tolerance: input.tolerance });
     return { id: input.id, nodes: r.nodes };
   },
+
+  animate_elements: (t, input: { ids: NodeId[]; preset: MotionPreset } & AnimateOptions) => {
+    const { ids: targets, preset, ...options } = input;
+    const created = t.doc.animate(targets, preset, options);
+    return { animated: targets, preset, animation_elements: created.length, animation_seconds: t.doc.timelineDuration() };
+  },
+
+  remove_animations: (t, input: { ids: NodeId[]; preset?: string }) => ({ removed: t.doc.removeAnimations(input.ids, input.preset) }),
 
   set_text: (t, input: { id: NodeId; text: string }) => {
     t.doc.setText(input.id, input.text);

@@ -9,6 +9,7 @@ import {
   unionBBox,
 } from "./geometry.js";
 import { applyMutation, type Mutation } from "./mutations.js";
+import { parsePath, pathBBox } from "./path.js";
 import { serialize, type SerializeOptions } from "./serialize.js";
 import {
   TEXT_TAG,
@@ -65,6 +66,12 @@ export type HistoryEvent =
   | { kind: "discard" };
 
 type BBoxResult = { ok: true; bbox: BBox } | { ok: false; reason: string };
+
+/** Children that draw nothing themselves; a group's bbox skips them. */
+const NO_GEOMETRY = new Set([
+  "animate", "animateTransform", "animateMotion", "set", "title", "desc", "metadata", "defs", "style", "script",
+  "linearGradient", "radialGradient", "pattern", "clipPath", "mask", "marker", "symbol", "filter",
+]);
 
 export class SvgDocument {
   readonly root: NodeId;
@@ -296,8 +303,8 @@ export class SvgDocument {
   /**
    * Bounding box in the node's own user space (its own transform excluded),
    * like DOM getBBox(). Computed from attributes, so it covers rect, circle,
-   * ellipse, line, polyline, polygon, image, foreignObject and groups of those.
-   * Paths and text need a renderer or path library (later steps).
+   * ellipse, line, polyline, polygon, path, image, foreignObject and groups of
+   * those. Text needs a renderer.
    */
   getBBox(id: NodeId): CommandResult<BBox> {
     if (!this.nodes.has(id)) {
@@ -305,7 +312,7 @@ export class SvgDocument {
     }
     const r = this.computeBBox(id);
     if (r.ok) return { ok: true, result: r.bbox };
-    const error: CommandError = { code: "BBOX_UNAVAILABLE", message: r.reason, hint: "Headless bboxes cover basic shapes and groups of them; paths and text need the renderer." };
+    const error: CommandError = { code: "BBOX_UNAVAILABLE", message: r.reason, hint: "Headless bboxes cover basic shapes, paths and groups of them; text needs the renderer." };
     return { ok: false, error };
   }
 
@@ -376,11 +383,21 @@ export class SvgDocument {
         const b = bboxOfPoints(pts);
         return b ? { ok: true, bbox: b } : unsupported("has no points.");
       }
+      case "path": {
+        let b: BBox | null;
+        try {
+          b = pathBBox(parsePath(a.d ?? ""));
+        } catch (e) {
+          if (e instanceof CommandFailure) return unsupported(e.error.message);
+          throw e;
+        }
+        return b ? { ok: true, bbox: b } : unsupported("draws nothing.");
+      }
       case "g": {
         const boxes: BBox[] = [];
         for (const c of n.children) {
           const child = this.nodes.get(c)!;
-          if (child.tag === TEXT_TAG) continue;
+          if (child.tag === TEXT_TAG || NO_GEOMETRY.has(child.tag)) continue;
           const r = this.computeBBox(c);
           if (!r.ok) return r;
           const m = parseTransform(child.attrs.transform);

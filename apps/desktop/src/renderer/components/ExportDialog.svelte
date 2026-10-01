@@ -1,6 +1,7 @@
 <script lang="ts">
   import FileCode from "@lucide/svelte/icons/file-code";
   import FileImage from "@lucide/svelte/icons/file-image";
+  import Image from "@lucide/svelte/icons/image";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
   import { tick, untrack } from "svelte";
   import type { SvgExportStyle } from "../../shared/api.js";
@@ -14,7 +15,7 @@
   $effect(() => {
     if (!open) return;
     const bytes = (s: string) => new TextEncoder().encode(s).length;
-    sizes = untrack(() => ({ formatted: bytes(session.svgText("formatted")), minified: bytes(session.svgText("minified")) }));
+    sizes = untrack(() => ({ formatted: bytes(session.svgText("formatted")), minified: bytes(session.svgText("minified")), static: bytes(session.svgText("static")) }));
   });
 
   function kb(n: number): string {
@@ -35,7 +36,7 @@
     </div>
     <div class="choices">
       <button data-export="png" onclick={() => choose(() => void session.exportPng())}>
-        <FileImage size={18} /><strong>PNG image</strong><span>At the drawing's size</span>
+        <FileImage size={18} /><strong>PNG image</strong><span>At the drawing's size{#if session.motionEnd > 0}, without motion{/if}</span>
       </button>
       <button data-export="formatted" onclick={() => choose(() => void session.exportSvg("formatted"))}>
         <FileCode size={18} /><strong>SVG, formatted</strong><span>One element per line, indented{#if sizes} · {kb(sizes.formatted)}{/if}</span>
@@ -43,6 +44,11 @@
       <button data-export="minified" onclick={() => choose(() => void session.exportSvg("minified"))}>
         <Minimize2 size={18} /><strong>SVG, minified</strong><span>No whitespace between tags{#if sizes} · {kb(sizes.minified)}{/if}</span>
       </button>
+      {#if session.motionEnd > 0}
+        <button data-export="static" onclick={() => choose(() => void session.exportSvg("static"))}>
+          <Image size={18} /><strong>SVG, still</strong><span>Formatted, without the animations{#if sizes} · {kb(sizes.static)}{/if}</span>
+        </button>
+      {/if}
     </div>
   </div>
 </Dialog>

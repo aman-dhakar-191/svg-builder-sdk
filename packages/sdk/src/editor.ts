@@ -1,8 +1,12 @@
 import {
+  ANIMATION_TAGS,
   applyToPoint,
   formatNumber,
   IDENTITY,
+  invert,
   multiply,
+  readAnimation,
+  timelineEnd,
   CommandFailure,
   parsePath,
   parseTransform,
@@ -13,7 +17,10 @@ import {
   type Command,
   type CommandError,
   type CommandResultMap,
+  type AnimationInfo,
   type Matrix,
+  type MotionOptions,
+  type MotionPreset,
   type NodeData,
   type NodeId,
   type PathMove,
@@ -41,6 +48,20 @@ export interface TransformOptions {
   origin?: "center" | Vec2;
   /** "parent" (default) or "local" (along the element's own axes). */
   space?: "parent" | "local";
+}
+
+export interface AnimateOptions extends MotionOptions {
+  /** Seconds added to each next element's delay, in the order given (default 0). */
+  stagger?: number;
+}
+
+/** One animation element and what it does. */
+export interface AnimationEntry extends AnimationInfo {
+  /** The <animate>/<animateTransform>/… element. */
+  id: NodeId;
+  tag: string;
+  /** The element it animates. */
+  target: NodeId;
 }
 
 export interface Rect {
@@ -521,7 +542,8 @@ export class Editor {
       }
       return { ...n, attrs, children: options.background ? [bgId, ...n.children] : n.children };
     };
-    return { svg: serialize(get, this.model.root), width, height };
+    // SMIL in an image starts at t=0: export the drawing at rest instead.
+    return { svg: serialize(get, this.model.root, { static: true }), width, height };
   }
 
   /** @internal */
@@ -666,6 +688,72 @@ export class DocumentApi {
       this.setText(id, text);
       return id;
     });
+  }
+
+  /**
+   * Adds a motion preset to each element (SMIL children tagged data-motion), replacing
+   * that preset where it is already applied. One undo step. `stagger` adds that many
+   * seconds to each next element's delay. Returns the IDs of the animation elements.
+   */
+  animate(ids: NodeId | NodeId[], preset: MotionPreset, options: AnimateOptions = {}): NodeId[] {
+    const list = typeof ids === "string" ? [ids] : ids;
+    const { stagger = 0, ...motion } = options;
+    if (!(typeof stagger === "number" && Number.isFinite(stagger) && stagger >= 0)) {
+      throw new SvgEditorError("INVALID_COMMAND", `stagger must be seconds (0 or more), got ${JSON.stringify(stagger)}.`, "Example: { stagger: 0.1 }.");
+    }
+    return this.editor.transactionAs(this.token, () =>
+      list.flatMap((id, i) => {
+        const delay = (motion.delay ?? 0) + i * stagger;
+        const box = this.has(id) && this.m.getBBox(id).ok ? undefined : this.localBoxFromRoot(id);
+        return this.run({
+          op: "animate",
+          id,
+          preset,
+          ...motion,
+          ...(delay > 0 || motion.delay !== undefined ? { delay: Math.round(delay * 1000) / 1000 } : {}),
+          ...(box ? { box } : {}),
+        }).ids;
+      }),
+    );
+  }
+
+  /** Removes animations from each element: those of `preset`, or all of them. Returns how many went. */
+  removeAnimations(ids: NodeId | NodeId[], preset?: string): number {
+    const list = typeof ids === "string" ? [ids] : ids;
+    return this.editor.transactionAs(this.token, () =>
+      list.reduce((n, id) => n + this.run({ op: "removeAnimations", id, ...(preset !== undefined ? { preset } : {}) }).removed, 0),
+    );
+  }
+
+  /** The animations on one element, or in the whole document. */
+  getAnimations(id?: NodeId): AnimationEntry[] {
+    const out: AnimationEntry[] = [];
+    const ids = id === undefined ? [...ANIMATION_TAGS].flatMap((tag) => this.m.query({ tag })) : this.getNode(id).children;
+    for (const a of ids) {
+      const n = this.getNode(a);
+      if (!ANIMATION_TAGS.has(n.tag) || n.parent === null) continue;
+      out.push({ id: a, tag: n.tag, target: n.parent, ...readAnimation(n.tag, n.attrs) });
+    }
+    // Document order, whatever the tag.
+    if (id === undefined && out.length > 1) {
+      const order = new Map(this.m.query({}).map((x, i) => [x, i]));
+      out.sort((x, y) => order.get(x.id)! - order.get(y.id)!);
+    }
+    return out;
+  }
+
+  /** Seconds until everything that starts on load has played once (loops count once); 0 without animations. */
+  timelineDuration(): number {
+    return timelineEnd(this.getAnimations());
+  }
+
+  /** An element's box in its own coordinates from the measure bridge (exact centre; size approximate when rotated). */
+  private localBoxFromRoot(id: NodeId): BBox | null {
+    const root = this.has(id) ? this.editor.measure(id) : null;
+    if (!root) return null;
+    const inv = invert(this.toRootMatrix(id));
+    if (!inv) return null;
+    return transformBBox(inv, root);
   }
 
   // ----------------------------------------------------------------- read

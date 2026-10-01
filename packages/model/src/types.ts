@@ -1,3 +1,5 @@
+import type { MotionOptions, MotionPreset } from "./animation.js";
+
 export type NodeId = string;
 
 /** Tag used for character data nodes. Their content lives in `text`. */
@@ -76,7 +78,15 @@ export type Command =
    */
   | { op: "boolean"; operation: "union" | "subtract" | "intersect" | "exclude"; ids: NodeId[] }
   /** Fewer points, same look: refits a <path>'s outline within `tolerance` (path units, default 1). */
-  | { op: "simplify"; id: NodeId; tolerance?: number };
+  | { op: "simplify"; id: NodeId; tolerance?: number }
+  /**
+   * Add a motion preset to an element as SMIL children tagged data-motion="<preset>",
+   * replacing that preset if the element has it already. `box` is the element's bbox in
+   * its own coordinates, for elements the model cannot measure (text).
+   */
+  | ({ op: "animate"; id: NodeId; preset: MotionPreset; box?: BBox } & MotionOptions)
+  /** Remove an element's animations: those of one preset, or all of them (hand-written ones too). */
+  | { op: "removeAnimations"; id: NodeId; preset?: string };
 
 export type CommandOp = Command["op"];
 
@@ -102,6 +112,7 @@ export type ErrorCode =
   | "NOT_CONVERTIBLE"
   | "EMPTY_RESULT"
   | "TOO_FEW_POINTS"
+  | "NOT_ANIMATABLE"
   | "BATCH_FAILED";
 
 export interface CommandError {
@@ -132,6 +143,9 @@ export interface CommandResultMap {
   /** The new <path>. */
   boolean: { id: NodeId; d: string };
   simplify: { id: NodeId; d: string; nodes: { before: number; after: number } };
+  /** The animation elements added. */
+  animate: { id: NodeId; preset: MotionPreset; ids: NodeId[] };
+  removeAnimations: { id: NodeId; removed: number };
 }
 
 export type CommandResult<T = unknown> =

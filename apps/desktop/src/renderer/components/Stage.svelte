@@ -5,6 +5,8 @@
   import Magnet from "@lucide/svelte/icons/magnet";
   import Maximize from "@lucide/svelte/icons/maximize";
   import Minus from "@lucide/svelte/icons/minus";
+  import Pause from "@lucide/svelte/icons/pause";
+  import Play from "@lucide/svelte/icons/play";
   import Plus from "@lucide/svelte/icons/plus";
   import { onMount } from "svelte";
   import { fly } from "../lib/motion.js";
@@ -18,6 +20,7 @@
 
   onMount(() => session.attachStage(host, overlay, grid));
   const locked = $derived(session.lock !== null);
+  const fmt = (t: number) => `${t.toFixed(t < 10 ? 2 : 1)} s`;
 </script>
 
 <section class="stage" class:locked aria-label="Canvas">
@@ -50,6 +53,21 @@
     </Tip>
   </div>
 
+  {#if session.motionEnd > 0}
+    <div class="float playbar" role="toolbar" aria-label="Animation" transition:fly={{ y: 8, duration: 160 }}>
+      <button class="icon-btn" id="play" aria-label={session.playing ? "Pause" : "Play"} title="{session.playing ? 'Pause' : 'Play'} the animation" onclick={() => session.togglePlay()}>
+        {#if session.playing}<Pause size={16} />{:else}<Play size={16} />{/if}
+      </button>
+      <input id="timeline" type="range" min="0" max={session.motionEnd} step="0.01" aria-label="Animation time"
+        value={session.playTime ?? session.motionEnd}
+        oninput={(e) => session.seekMotion(Number((e.target as HTMLInputElement).value))} />
+      <span id="play-time" class="time">{fmt(session.playTime ?? session.motionEnd)} / {fmt(session.motionEnd)}</span>
+      {#if session.playTime !== null && !session.playing}
+        <button class="btn small ghost" id="play-done" title="Back to editing (the drawing at the end of its motion)" onclick={() => session.restMotion()}>Done</button>
+      {/if}
+    </div>
+  {/if}
+
   <div class="float zoom" role="toolbar" aria-label="Zoom">
     <button class="icon-btn" data-view="zoomOut" aria-label="Zoom out" onclick={() => session.viewport?.zoomOut()}><Minus size={16} /></button>
     <button class="zoomval" id="zoom" title="Actual size ({formatKeys('Mod+1')})" onclick={() => session.viewport?.setZoom(1)}>{Math.round(session.zoom * 100)}%</button>
@@ -72,6 +90,9 @@
   .float { position: absolute; display: flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; box-shadow: var(--shadow); z-index: 3; }
   .view { left: 12px; bottom: 12px; }
   .zoom { right: 12px; bottom: 12px; }
+  .playbar { left: 50%; bottom: 56px; transform: translateX(-50%); gap: 8px; padding: 3px 10px 3px 3px; }
+  .playbar input { width: clamp(80px, 22vw, 260px); accent-color: var(--ink); }
+  .time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .zoomval { min-width: 52px; height: 30px; border: 0; background: none; border-radius: 7px; font-variant-numeric: tabular-nums; font-size: 12px; }
   .zoomval:hover { background: var(--hover); }
   .peek { right: 12px; top: 12px; padding: 0; border: 0; background: none; box-shadow: none; }

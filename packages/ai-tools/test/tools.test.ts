@@ -242,3 +242,30 @@ describe("combine and simplify tools", () => {
     expect(editor.text).toBe(SRC);
   });
 });
+
+describe("animation tools", () => {
+  it("animate_elements staggers a sequence, get_document lists it, remove_animations takes it off; undoable", async () => {
+    const [a, b] = (await ok("add_elements", { elements: [{ tag: "circle", attributes: { cx: 50, cy: 50, r: 10 } }, { tag: "path", attributes: { d: "M100 50 L150 50", stroke: "black" } }] })).ids as string[];
+    const r = await ok("animate_elements", { ids: [a, b], preset: "popIn", stagger: 0.25 });
+    expect(r).toEqual({ animated: [a, b], preset: "popIn", animation_elements: 6, animation_seconds: 0.75 });
+    await ok("animate_elements", { ids: [b], preset: "drawOn", trigger: "click" });
+    const d = await ok("get_document");
+    expect(d.animation_seconds).toBe(0.75);
+    expect((d.outline as { id: string; motion?: string[]; children?: unknown }[]).find((n) => n.id === b)).toMatchObject({ motion: ["popIn", "drawOn"] });
+    expect((d.outline as { id: string; children?: unknown }[]).find((n) => n.id === b)!.children).toBeUndefined();
+
+    expect((await err("animate_elements", { ids: [a], preset: "drawOn" })).code).toBe("NOT_ANIMATABLE");
+    expect((await err("animate_elements", { ids: [a], preset: "bounce" })).code).toBe("INVALID_INPUT");
+    expect(await ok("remove_animations", { ids: [b], preset: "drawOn" })).toEqual({ removed: 3 }); // dash, offset, and the default black fill fading in
+    expect(await ok("remove_animations", { ids: [a, b] })).toEqual({ removed: 6 });
+    session.commit();
+    editor.undo();
+    expect(editor.text).toBe(SRC);
+  });
+
+  it("lists the same presets as the model", async () => {
+    const { MOTION_PRESETS } = await import("@svg-editor/sdk");
+    const tool = TOOLS.find((t) => t.name === "animate_elements")!;
+    expect((tool.input_schema.properties as Record<string, { enum?: string[] }>).preset!.enum).toEqual([...MOTION_PRESETS]);
+  });
+});

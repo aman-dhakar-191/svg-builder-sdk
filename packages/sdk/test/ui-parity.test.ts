@@ -133,11 +133,26 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
     },
   },
   {
-    ui: "Export SVG (formatted / minified)",
-    sdk: "editor.toSvg({ pretty })",
+    ui: "Export SVG (formatted / minified / still)",
+    sdk: "editor.toSvg({ pretty, static })",
     run: (ed) => {
       expect(ed.toSvg({ pretty: true })).toContain("\n  <");
       expect(ed.toSvg()).not.toMatch(/>\s+</);
+      ed.doc.animate(byAttr(ed, "a"), "fadeIn");
+      expect(ed.toSvg({ pretty: true, static: true })).not.toContain("<animate");
+    },
+  },
+  {
+    ui: "Motion: preset buttons (with duration, delay, start, repeat, stagger), applied chips ×, Remove all motion",
+    sdk: "doc.animate(ids, preset, options), doc.removeAnimations(ids, preset?), doc.getAnimations(id)",
+    run: (ed) => {
+      const ids = [byAttr(ed, "a"), byAttr(ed, "b")];
+      ed.doc.animate(ids, "popIn", { duration: 0.4, delay: 0.1, trigger: "load", repeat: 1, stagger: 0.2 });
+      ed.doc.animate(ids[0]!, "slideIn", { from: "left" });
+      expect(ed.doc.getAnimations(ids[1]).map((a) => a.preset)).toEqual(["popIn", "popIn", "popIn"]);
+      expect(ed.doc.removeAnimations(ids, "popIn")).toBe(6);
+      expect(ed.doc.removeAnimations(ids)).toBe(1);
+      expect(ed.doc.timelineDuration()).toBe(0);
     },
   },
   {
@@ -225,6 +240,7 @@ const VIEW_ONLY: Record<string, string> = {
   toggleSnap: "snapping only rounds coordinates the caller then passes to doc.add / doc.transform",
   toggleSnapShapes: "snapping only adjusts the offset the caller then passes to doc.transform",
   checkUpdates: "updates the app itself, not the document",
+  playAnimation: "previews the motion on the canvas; doc.getAnimations() and doc.timelineDuration() describe it",
   select: "the select tool picks a mode for pointer input",
 };
 
