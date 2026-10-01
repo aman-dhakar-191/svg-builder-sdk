@@ -222,3 +222,39 @@ test("the page stays light in the dark theme unless asked, so dark artwork stays
   await page.locator("#page-color").selectOption("light");
   expect(await paper()).toBe("rgb(255, 255, 255)");
 });
+
+test("Layers only draws the rows in view of a large drawing, and scrolls to the selection", async () => {
+  const rects = Array.from({ length: 5000 }, (_, i) => `  <rect id="r${i}" x="${i % 100}" y="${Math.floor(i / 100)}" width="1" height="1"/>`).join("\n");
+  await page.evaluate(`window.editor.session.load(${JSON.stringify(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">\n${rects}\n</svg>\n`)})`);
+  await page.locator("#tab-layers-button").click();
+  await expect(page.locator(".layer-row").first()).toBeVisible();
+  expect(await page.locator(".layer-row").count()).toBeLessThan(120);
+  // The list is as tall as all rows would be.
+  expect(await page.locator("#layers").evaluate((el) => el.scrollHeight)).toBeGreaterThan(5000 * 28);
+
+  const last = await page.evaluate(`(() => { const e = window.editor; const id = e.editor.doc.query({ attr: { id: "r4999" } })[0]; e.editor.select([id]); return id; })()`);
+  await expect(page.locator(`.layer-row[data-id="${last}"]`)).toBeInViewport();
+  await expect(page.locator(`.layer-row[data-id="${last}"]`)).toHaveClass(/selected/);
+
+});
+
+test("attribute changes patch the canvas in place, with the same safety rules", async () => {
+  const same = await page.evaluate(`(async () => {
+    const e = window.editor; const d = e.editor.doc;
+    const id = d.query({ tag: "rect" })[0];
+    const before = document.querySelector("#canvas svg rect");
+    d.set(id, { fill: "red", onclick: "alert(1)", "data-x": "1" });
+    await new Promise((r) => requestAnimationFrame(r));
+    const after = document.querySelector("#canvas svg rect");
+    return { same: before === after, fill: after.getAttribute("fill"), onclick: after.hasAttribute("onclick"), dataX: after.getAttribute("data-x") };
+  })()`);
+  expect(same).toEqual({ same: true, fill: "red", onclick: false, dataX: "1" });
+  // Removing an attribute removes it from the canvas; undo puts it back.
+  await page.evaluate(`window.editor.editor.doc.set(window.editor.editor.doc.query({ tag: "rect" })[0], { "data-x": null })`);
+  await expect(page.locator("#canvas svg rect")).not.toHaveAttribute("data-x");
+  await page.evaluate(`window.editor.session.undo()`);
+  await expect(page.locator("#canvas svg rect")).toHaveAttribute("data-x", "1");
+  // Text changes patch the text node.
+  await page.evaluate(`window.editor.editor.doc.setText(window.editor.editor.doc.query({ tag: "text" })[0], "Changed")`);
+  await expect(page.locator("#canvas svg text")).toHaveText("Changed");
+});

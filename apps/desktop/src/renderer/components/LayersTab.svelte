@@ -11,6 +11,7 @@
   import Type from "@lucide/svelte/icons/type";
   import Zap from "@lucide/svelte/icons/zap";
   import { ANIMATION_TAGS, TEXT_TAG, type Command, type NodeId, type TreeNode } from "@svg-editor/sdk";
+  import { onMount, untrack } from "svelte";
   import { session } from "../lib/session.svelte.js";
 
   /** Elements that can hold other elements (targets for "drop inside"). */
@@ -40,11 +41,42 @@
   });
   const selected = $derived(new Set(session.selection));
 
-  // Keep the selected row in view when the selection comes from the canvas or code.
+  // Only the rows in view (plus a margin) are in the DOM: large drawings have thousands.
+  const ROW = 29; // 28 px row + 1 px gap
+  const OVERSCAN = 12;
   let list: HTMLElement;
+  let scroller: HTMLElement | null = null;
+  let scrollTop = $state(0);
+  let viewHeight = $state(800);
+  const start = $derived(Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN));
+  const end = $derived(Math.min(rows.length, Math.ceil((scrollTop + viewHeight) / ROW) + OVERSCAN));
+  onMount(() => {
+    scroller = list.closest(".pane");
+    if (!scroller) return;
+    const s = scroller;
+    const sync = () => {
+      scrollTop = s.scrollTop;
+      viewHeight = s.clientHeight || 800;
+    };
+    s.addEventListener("scroll", sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(s);
+    sync();
+    return () => {
+      s.removeEventListener("scroll", sync);
+      ro.disconnect();
+    };
+  });
+
+  // Keep the selected row in view when the selection comes from the canvas or code.
   $effect(() => {
-    void session.selection;
-    queueMicrotask(() => list?.querySelector(".layer-row.selected")?.scrollIntoView({ block: "nearest" }));
+    const first = session.selection[0];
+    if (first === undefined) return;
+    const i = untrack(() => rows.findIndex((r) => r.n.id === first));
+    if (i < 0 || !scroller) return;
+    const top = i * ROW;
+    const s = scroller;
+    if (top < s.scrollTop || top + ROW > s.scrollTop + s.clientHeight) s.scrollTop = Math.max(0, top - s.clientHeight / 2);
   });
 
   function toggleCollapse(id: NodeId): void {
@@ -99,7 +131,8 @@
 </script>
 
 <div id="layers" role="tree" aria-label="Layers" bind:this={list}>
-  {#each rows as { n, depth, hasKids, motion } (n.id)}
+  {#if rows.length > 0}<div class="spacer" style:height="{start * ROW}px"></div>{/if}
+  {#each rows.slice(start, end) as { n, depth, hasKids, motion } (n.id)}
     {@const Icon = ICONS[n.tag] ?? Shapes}
     <div
       class="layer-row"
@@ -136,14 +169,16 @@
         {#if n.attrs.display === "none"}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
       </button>
     </div>
-  {:else}
-    <p class="empty">No shapes yet. Draw one with the tools on the left, type in the code, or ask the agent.</p>
   {/each}
+  {#if rows.length > 0}<div class="spacer" style:height="{Math.max(0, rows.length - end) * ROW}px"></div>{:else}
+    <p class="empty">No shapes yet. Draw one with the tools on the left, type in the code, or ask the agent.</p>
+  {/if}
 </div>
 
 <style>
-  #layers { padding: 6px; display: grid; gap: 1px; }
-  .layer-row { display: flex; align-items: center; gap: 6px; height: 28px; padding-right: 4px; border-radius: 7px; cursor: default; white-space: nowrap; transition: background var(--fast); }
+  #layers { padding: 6px; display: flex; flex-direction: column; }
+  .spacer { flex: none; }
+  .layer-row { display: flex; align-items: center; gap: 6px; height: 28px; margin-bottom: 1px; flex: none; padding-right: 4px; border-radius: 7px; cursor: default; white-space: nowrap; transition: background var(--fast); }
   .layer-row:hover { background: var(--hover); }
   .layer-row.selected { background: var(--ink-soft); }
   .layer-row.hidden-el .layer-tag, .layer-row.hidden-el .layer-label, .layer-row.hidden-el .ico { opacity: 0.45; }

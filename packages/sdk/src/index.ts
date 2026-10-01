@@ -8,6 +8,7 @@ export type { PathMove, PathNodeOp, PathPoint, PathSegment } from "@svg-editor/m
 /** Motion presets and their defaults. */
 export { ANIMATION_TAGS, MOTION_EASINGS, MOTION_PRESETS, parseClock, PRESET_INFO } from "@svg-editor/model";
 export type { AnimationInfo, MotionEasing, MotionOptions, MotionPreset, MotionTrigger, PresetInfo } from "@svg-editor/model";
+export type { Mutation } from "@svg-editor/model";
 export type { BBox, Command, CommandError, CommandResult, NodeData, NodeId, Query, TreeNode, Vec2 } from "@svg-editor/model";
 export type { TextEdit } from "@svg-editor/parser";
 export type { AbortSignalLike } from "./platform.js";

@@ -20,6 +20,7 @@ import {
   type AnimationInfo,
   type Matrix,
   type MotionOptions,
+  type Mutation,
   type MotionPreset,
   type NodeData,
   type NodeId,
@@ -220,6 +221,15 @@ export class Editor {
   /** Called after every change with minimal text edits. Returns an unsubscribe function. */
   onChange(listener: (e: TextChangeEvent) => void): () => void {
     return this.source.onChange((c) => listener({ text: c.text, edits: c.edits, origin: c.method === "code" ? "code" : "model" }));
+  }
+
+  /**
+   * Low-level changes as they are applied (commands, undo, redo, rollbacks and code edits
+   * alike): "insert", "remove", "move", "attrs" (an element's full new attribute set) or
+   * "text". For views that update incrementally; most callers want onChange.
+   */
+  onMutation(listener: (m: Mutation) => void): () => void {
+    return this.model.onMutation(listener);
   }
 
   /** Source offsets of a node's text (for highlighting it in a code view). */

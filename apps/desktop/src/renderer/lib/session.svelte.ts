@@ -334,9 +334,7 @@ export class Session {
       this.view.dispatch(setDiagnostics(this.view.state, []));
       this.codeError = null;
     }
-    this.canvas?.render();
-    this.viewport?.apply();
-    this.canvas?.refresh();
+    this.scheduleCanvas();
     this.docVersion++;
     this.selection = this.editor.getSelection();
     this.canUndo = this.editor.canUndo();
@@ -344,6 +342,25 @@ export class Session {
     this.highlight(this.selection);
     this.showSelectionStatus(this.selection);
     this.updateDirty();
+  }
+
+  private canvasQueued = false;
+
+  /** One canvas update per change, however many mutations it had (they arrive one by one). */
+  private scheduleCanvas(): void {
+    if (this.canvasQueued) return;
+    this.canvasQueued = true;
+    queueMicrotask(() => {
+      this.canvasQueued = false;
+      this.syncCanvas();
+    });
+  }
+
+  /** Brings the canvas up to date now (for code that uses it right after a change). */
+  syncCanvas(): void {
+    this.canvas?.update();
+    this.viewport?.apply();
+    this.canvas?.refresh();
   }
 
   private onSelectionChange(ids: NodeId[]): void {
@@ -570,6 +587,7 @@ export class Session {
         return this.showStatus(e instanceof Error ? e.message : String(e), true);
       }
       this.editor.select(paths);
+      this.syncCanvas();
       if (paths.length === 1) this.canvas?.editNodes(paths[0]!);
       else this.showStatus(`Converted ${paths.length} shapes to paths.`, false);
     });
@@ -653,6 +671,7 @@ export class Session {
         return this.showStatus(e instanceof SvgEditorError ? `${e.message} ${e.hint}` : String(e), true);
       }
       this.showStatus(`${PRESET_INFO[preset].label} added${ids.length > 1 ? ` to ${ids.length} shapes` : ""}. Ctrl+Z to undo.`, false);
+      this.syncCanvas();
       if (!reducedMotion()) this.canvas?.playback.play();
     });
   }

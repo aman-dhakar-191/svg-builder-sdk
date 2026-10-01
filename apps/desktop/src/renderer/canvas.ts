@@ -1,4 +1,4 @@
-import { formatPath, movePathPoints, nearestOnPath, oppositeHandle, pointOnSegment, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "@svg-editor/sdk";
+import { ANIMATION_TAGS, TEXT_TAG, formatPath, movePathPoints, nearestOnPath, oppositeHandle, pointOnSegment, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "@svg-editor/sdk";
 import {
   angleBetween,
   anchorPoint,
@@ -19,7 +19,7 @@ import {
   type Rect,
 } from "./geometry.js";
 import { Playback } from "./playback.js";
-import { renderTree } from "./render.js";
+import { applyAttrs, renderTree, skipped } from "./render.js";
 
 export type Tool = "select" | "rect" | "ellipse" | "line" | "text";
 
@@ -70,6 +70,12 @@ interface Item {
 export class CanvasController {
   private svg: SVGSVGElement | null = null;
   private nodeOf = new WeakMap<Element, NodeId>();
+  private domOf = new Map<NodeId, Element | Text>();
+  private ns: Record<string, string> = {};
+  /** Changes since the last render: attribute / text changes can be patched in place; anything else rebuilds. */
+  private changed = new Set<NodeId>();
+  private structural = false;
+  private unsubscribeMutations: () => void;
   private elOf = new Map<NodeId, SVGGraphicsElement>();
   private gesture: Gesture | null = null;
   private _tool: Tool = "select";
@@ -103,6 +109,7 @@ export class CanvasController {
     private readonly onTool: (tool: Tool) => void,
   ) {
     this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
+    this.unsubscribeMutations = this.watch(editor);
     host.addEventListener("dblclick", (e) => this.doubleClick(e));
     overlay.addEventListener("dblclick", (e) => this.doubleClick(e));
     host.addEventListener("keyup", (e) => {
@@ -129,7 +136,53 @@ export class CanvasController {
     this.exitNodeEdit();
     this.editor = editor;
     this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
+    this.unsubscribeMutations();
+    this.unsubscribeMutations = this.watch(editor);
     this.render();
+  }
+
+  private watch(editor: Editor): () => void {
+    return editor.onMutation((m) => {
+      if (m.kind === "attrs" || m.kind === "text") this.changed.add(m.id);
+      else this.structural = true;
+    });
+  }
+
+  /**
+   * Brings the canvas up to date after a document change: attribute and text changes
+   * are patched into the existing DOM (large drawings stay fast); added, removed or moved
+   * nodes, and changes to animations, rebuild it.
+   */
+  update(): void {
+    if (!this.structural && this.changed.size === 0) return;
+    if (!this.patch()) return this.render();
+    this.afterRender();
+  }
+
+  /**
+   * Patches pending attribute / text changes into the DOM, with no other side effects
+   * (safe while measuring). False when they need a rebuild instead.
+   */
+  private patch(): boolean {
+    if (this.svg === null || this.structural) return false;
+    const doc = this.editor.doc;
+    const ids = [...this.changed];
+    const patchable = ids.every((id) => {
+      const n = doc.has(id) ? doc.getNode(id) : null;
+      if (!n) return false;
+      if (n.tag !== TEXT_TAG && skipped(n.tag)) return true; // not on the canvas
+      return this.domOf.has(id) && !ANIMATION_TAGS.has(n.tag);
+    });
+    if (!patchable) return false;
+    this.changed.clear();
+    for (const id of ids) {
+      const dom = this.domOf.get(id);
+      if (!dom) continue;
+      const n = doc.getNode(id);
+      if (dom instanceof Text) dom.data = n.text ?? "";
+      else applyAttrs(dom, n.attrs, this.ns);
+    }
+    return true;
   }
 
   /** The selection lives in the SDK editor; the canvas only draws it. */
@@ -341,6 +394,9 @@ export class CanvasController {
    * units, from the live DOM (works for paths and text, unlike headless).
    */
   measure(id: NodeId): BBox | null {
+    // A change may not have reached the canvas yet. Only patch here: measuring runs inside
+    // Svelte's derivations, which must not set state (a full update notifies the panels).
+    this.patch();
     const el = this.elOf.get(id);
     const rootCtm = this.svg?.getScreenCTM();
     const ctm = el?.getScreenCTM();
@@ -363,9 +419,13 @@ export class CanvasController {
 
   /** Rebuilds the canvas from the model and keeps the selection where possible. */
   render(): void {
-    const { svg, nodeOf } = renderTree(this.editor.doc.getTree());
+    this.changed.clear();
+    this.structural = false;
+    const { svg, nodeOf, domOf, ns } = renderTree(this.editor.doc.getTree());
     this.svg = svg;
     this.nodeOf = nodeOf;
+    this.domOf = domOf;
+    this.ns = ns;
     this.elOf.clear();
     const walk = (el: Element) => {
       const id = nodeOf.get(el);
@@ -376,6 +436,10 @@ export class CanvasController {
     this.host.replaceChildren(svg);
     this.playback.end = previewEnd(this.editor);
     this.playback.attach(svg);
+    this.afterRender();
+  }
+
+  private afterRender(): void {
     // The document changed (an undo, a drag): refresh what the inspector shows for the selected point.
     if (this.nodeEdit !== null && this.activeNode !== null) {
       try {
