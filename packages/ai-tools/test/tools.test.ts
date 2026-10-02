@@ -283,3 +283,18 @@ describe("background tool", () => {
     expect(editor.text).toBe(SRC);
   });
 });
+
+describe("keyframe tool", () => {
+  it("set_keyframes moves and recolours over time; get_document lists the tracks; undoable", async () => {
+    const [a] = (await ok("add_elements", { elements: [{ tag: "circle", attributes: { cx: 20, cy: 50, r: 10, fill: "red" } }] })).ids as string[];
+    expect(await ok("set_keyframes", { id: a, property: "translate", keys: [{ time: 0, value: [0, 0] }, { time: 2, value: [150, 0] }] })).toMatchObject({ keys: 2, animation_seconds: 2 });
+    await ok("set_keyframes", { id: a, property: "fill", keys: [{ time: 0, value: "red" }, { time: 2, value: "blue" }], easing: "linear" });
+    const d = await ok("get_document");
+    expect((d.outline as { id: string; motion?: string[] }[]).find((n) => n.id === a)!.motion).toEqual(["keys:translate", "keys:fill"]);
+    expect((await err("set_keyframes", { id: a, property: "opacity", keys: [{ time: 0, value: 3 }] })).code).toBe("INVALID_COMMAND");
+    expect(await ok("remove_animations", { ids: [a], preset: "keys" })).toEqual({ removed: 2 });
+    session.commit();
+    editor.undo();
+    expect(editor.text).toBe(SRC);
+  });
+});

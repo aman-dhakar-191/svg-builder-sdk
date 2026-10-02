@@ -258,6 +258,7 @@ function buildMenu(): void {
           item("Snap to Shapes", "toggleSnapShapes"),
           { type: "separator" },
           item("Play / Pause Animation", "playAnimation"),
+          item("Timeline", "toggleTimeline"),
           { type: "separator" },
           { role: "toggleDevTools" },
         ],

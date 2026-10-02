@@ -50,6 +50,7 @@ export const COMMANDS: Command[] = [
   { action: "toggleSnap", label: "Snap to grid", menu: "View", keys: "Mod+Shift+'" },
   { action: "toggleSnapShapes", label: "Snap to shapes", menu: "View", keywords: "smart guides align edges centres centers objects" },
   { action: "playAnimation", label: "Play / pause animation", menu: "View", separator: true, keywords: "motion preview smil timeline animate" },
+  { action: "toggleTimeline", label: "Timeline", menu: "View", keywords: "keyframes keys animate record motion" },
 ];
 
 

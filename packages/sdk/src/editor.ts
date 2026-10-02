@@ -6,7 +6,9 @@ import {
   invert,
   multiply,
   readAnimation,
+  readTracks,
   timelineEnd,
+  valueAt,
   CommandFailure,
   parsePath,
   parseTransform,
@@ -18,7 +20,12 @@ import {
   type CommandError,
   type CommandResultMap,
   type AnimationInfo,
+  type Keyframe,
+  type KeyProperty,
+  type KeyTrack,
+  type KeyValue,
   type Matrix,
+  type MotionEasing,
   type MotionOptions,
   type Mutation,
   type MotionPreset,
@@ -752,6 +759,67 @@ export class DocumentApi {
       out.sort((x, y) => order.get(x.id)! - order.get(y.id)!);
     }
     return out;
+  }
+
+  /** The element's keyframe tracks (translate, rotate, scale, opacity, fill, stroke), keys sorted by time. */
+  getKeyframes(id: NodeId): KeyTrack[] {
+    const n = this.getNode(id);
+    return readTracks(n.children.map((c) => this.getNode(c)));
+  }
+
+  /**
+   * Replaces one property's keyframes (an empty list removes the track). One undo step.
+   * Values: translate [dx, dy] in the element's units, rotate degrees, scale number or
+   * [sx, sy] (both about the element's centre), opacity 0..1, fill / stroke colours.
+   */
+  setKeyframes(id: NodeId, property: KeyProperty, keys: Keyframe[], options: { easing?: MotionEasing } = {}): void {
+    const box = this.has(id) && this.m.getBBox(id).ok ? undefined : this.localBoxFromRoot(id);
+    this.run({ op: "keyframes", id, property, keys, ...(options.easing ? { easing: options.easing } : {}), ...(box ? { box } : {}) });
+  }
+
+  /** Adds or replaces the key at `time` (seconds). */
+  setKeyframe(id: NodeId, property: KeyProperty, time: number, value: KeyValue): void {
+    const t = Math.round(time * 1000) / 1000;
+    const keys = (this.getKeyframes(id).find((k) => k.property === property)?.keys ?? []).filter((k) => k.time !== t);
+    this.setKeyframes(id, property, [...keys, { time: t, value }]);
+  }
+
+  /** Removes the key at `time`; the track goes with its last key. */
+  removeKeyframe(id: NodeId, property: KeyProperty, time: number): void {
+    const track = this.getKeyframes(id).find((k) => k.property === property);
+    if (!track) return;
+    this.setKeyframes(id, property, track.keys.filter((k) => Math.abs(k.time - time) > 1e-6));
+  }
+
+  /** Moves the key at `from` to `to` (seconds), replacing a key already there. */
+  moveKeyframe(id: NodeId, property: KeyProperty, from: number, to: number): void {
+    const track = this.getKeyframes(id).find((k) => k.property === property);
+    const key = track?.keys.find((k) => Math.abs(k.time - from) < 1e-6);
+    if (!track || !key) throw new SvgEditorError("NOT_FOUND", `No ${property} keyframe at ${from} s on "${id}".`, "Read the keys with getKeyframes(id).");
+    const t = Math.round(Math.max(0, to) * 1000) / 1000;
+    this.setKeyframes(id, property, [...track.keys.filter((k) => k !== key && Math.abs(k.time - t) > 1e-6), { time: t, value: key.value }]);
+  }
+
+  /**
+   * What a property is at `time`: from its keyframes, else the element's resting value
+   * (translate [0, 0], rotate 0, scale [1, 1], its opacity, fill or stroke).
+   */
+  keyValueAt(id: NodeId, property: KeyProperty, time: number): KeyValue {
+    const track = this.getKeyframes(id).find((k) => k.property === property);
+    if (track && track.keys.length) return valueAt(track, time);
+    const a = this.getNode(id).attrs;
+    switch (property) {
+      case "translate":
+        return [0, 0];
+      case "rotate":
+        return 0;
+      case "scale":
+        return [1, 1];
+      case "opacity":
+        return a.opacity !== undefined && Number.isFinite(Number(a.opacity)) ? Number(a.opacity) : 1;
+      default:
+        return a[property] ?? (property === "fill" ? "black" : "none");
+    }
   }
 
   /** Seconds until everything that starts on load has played once (loops count once); 0 without animations. */

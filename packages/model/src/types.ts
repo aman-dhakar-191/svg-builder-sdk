@@ -1,4 +1,5 @@
-import type { MotionOptions, MotionPreset } from "./animation.js";
+import type { MotionEasing, MotionOptions, MotionPreset } from "./animation.js";
+import type { Keyframe, KeyProperty } from "./keyframes.js";
 
 export type NodeId = string;
 
@@ -86,7 +87,13 @@ export type Command =
    */
   | ({ op: "animate"; id: NodeId; preset: MotionPreset; box?: BBox } & MotionOptions)
   /** Remove an element's animations: those of one preset, or all of them (hand-written ones too). */
-  | { op: "removeAnimations"; id: NodeId; preset?: string };
+  | { op: "removeAnimations"; id: NodeId; preset?: string }
+  /**
+   * Replace one property's keyframe track on an element (keys [] removes it). Values:
+   * translate [dx, dy], rotate degrees, scale number or [sx, sy] (about the element's
+   * centre), opacity 0..1, fill / stroke colours. `box` as for animate.
+   */
+  | { op: "keyframes"; id: NodeId; property: KeyProperty; keys: Keyframe[]; easing?: MotionEasing; box?: BBox };
 
 export type CommandOp = Command["op"];
 
@@ -146,6 +153,7 @@ export interface CommandResultMap {
   /** The animation elements added. */
   animate: { id: NodeId; preset: MotionPreset; ids: NodeId[] };
   removeAnimations: { id: NodeId; removed: number };
+  keyframes: { id: NodeId; property: KeyProperty; keys: number; ids: NodeId[] };
 }
 
 export type CommandResult<T = unknown> =

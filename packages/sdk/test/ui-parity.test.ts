@@ -143,6 +143,20 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
     },
   },
   {
+    ui: "Timeline: record moves / rotations / resizes / opacity / fill at the playhead; drag a key; Delete a key",
+    sdk: "doc.setKeyframe(id, property, time, value), doc.keyValueAt, doc.moveKeyframe, doc.removeKeyframe, doc.getKeyframes",
+    run: (ed) => {
+      const a = byAttr(ed, "a");
+      ed.doc.setKeyframe(a, "translate", 0, [0, 0]);
+      ed.doc.setKeyframe(a, "translate", 1, [30, 0]);
+      ed.doc.setKeyframe(a, "opacity", 1, 0.5);
+      ed.doc.moveKeyframe(a, "translate", 1, 1.5);
+      ed.doc.removeKeyframe(a, "opacity", 1);
+      expect(ed.doc.getKeyframes(a)).toMatchObject([{ property: "translate", keys: [{ time: 0 }, { time: 1.5 }] }]);
+      expect(ed.doc.keyValueAt(a, "translate", 1.5)).toEqual([30, 0]);
+    },
+  },
+  {
     ui: "Design > Document > Background; Export: Include the background",
     sdk: "doc.setBackground(color | null), doc.getBackground(), exportPng / toSvg({ omit })",
     run: (ed) => {
@@ -250,6 +264,7 @@ const VIEW_ONLY: Record<string, string> = {
   toggleSnap: "snapping only rounds coordinates the caller then passes to doc.add / doc.transform",
   toggleSnapShapes: "snapping only adjusts the offset the caller then passes to doc.transform",
   checkUpdates: "updates the app itself, not the document",
+  toggleTimeline: "opens the timeline panel; its edits are the keyframe calls (see the Timeline row)",
   playAnimation: "previews the motion on the canvas; doc.getAnimations() and doc.timelineDuration() describe it",
   select: "the select tool picks a mode for pointer input",
 };

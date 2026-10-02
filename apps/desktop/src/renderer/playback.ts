@@ -23,6 +23,12 @@ export class Playback {
   /** The preview's length: when everything (triggered ones from their delay) has played once. */
   end = 0;
 
+  /**
+   * Where the canvas rests for editing: null for the end of the timeline, or a time
+   * (the timeline's playhead), where shapes are edited in the pose they have then.
+   */
+  hold: number | null = null;
+
   get playing(): boolean {
     return this._playing;
   }
@@ -54,14 +60,15 @@ export class Playback {
     this._playing = false;
     this._time = null;
     // Just past the end: entrances are frozen at their final value, loops (practically) at their start.
-    this.seekDom(this.end + 1e-6, false);
+    this.seekDom(this.hold ?? this.end + 1e-6, this.hold !== null);
     this.onChange({ playing: false, time: null });
   }
 
   play(): void {
     const svg = this.svg;
     if (!svg) return;
-    const from = this._time === null || this._time >= this.end ? 0 : this._time;
+    const start = this._time ?? this.hold;
+    const from = start === null || start >= this.end ? 0 : start;
     this.seekDom(from, true);
     svg.unpauseAnimations();
     this._playing = true;
@@ -69,6 +76,7 @@ export class Playback {
       const t = svg.getCurrentTime();
       // Played through: back to the resting drawing, where editing happens.
       if (t >= this.end) return this.rest();
+      if (this.hold !== null) this.hold = t;
       this._time = t;
       this.onChange({ playing: true, time: t });
       this.frame = requestAnimationFrame(tick);
@@ -81,8 +89,18 @@ export class Playback {
     this.stopFrames();
     this.svg?.pauseAnimations();
     this._playing = false;
-    this._time = this.svg?.getCurrentTime() ?? null;
+    // With a playhead (timeline open), pausing leaves it there, ready to edit.
+    if (this.hold !== null) {
+      this.hold = this.svg?.getCurrentTime() ?? this.hold;
+      this._time = null;
+    } else this._time = this.svg?.getCurrentTime() ?? null;
     this.onChange({ playing: false, time: this._time });
+  }
+
+  /** Puts the playhead at `t` (the timeline): the canvas holds that pose for editing. */
+  setHold(t: number | null): void {
+    this.hold = t === null ? null : Math.max(0, t);
+    this.rest();
   }
 
   /** Shows the frame at `t` seconds, paused. */

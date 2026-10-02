@@ -18,6 +18,7 @@ export type MenuAction =
   | "toggleSnap"
   | "toggleSnapShapes"
   | "playAnimation"
+  | "toggleTimeline"
   | "checkUpdates"
   | "simulateAiTurn"
   | "convertToPath"
