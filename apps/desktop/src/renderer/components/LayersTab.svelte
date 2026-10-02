@@ -124,6 +124,7 @@
   /** Short label: Inkscape label or id, else text content. */
   function describe(n: TreeNode): string {
     if (n.attrs["inkscape:label"]) return n.attrs["inkscape:label"];
+    if ("data-background" in n.attrs) return "Background";
     if (n.attrs.id) return `#${n.attrs.id}`;
     const t = n.children.filter((c) => c.tag === TEXT_TAG).map((c) => c.text ?? "").join("").trim();
     return t ? `"${t.length > 24 ? `${t.slice(0, 24)}…` : t}"` : "";

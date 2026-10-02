@@ -143,6 +143,16 @@ const PARITY: { ui: string; sdk: string; run: (ed: Editor) => void | Promise<voi
     },
   },
   {
+    ui: "Design > Document > Background; Export: Include the background",
+    sdk: "doc.setBackground(color | null), doc.getBackground(), exportPng / toSvg({ omit })",
+    run: (ed) => {
+      const id = ed.doc.setBackground("#111827")!;
+      expect(ed.doc.getBackground()).toEqual({ id, color: "#111827" });
+      expect(ed.toSvg({ omit: [id] })).not.toContain("data-background");
+      expect(ed.doc.topLevel()).not.toContain(id);
+    },
+  },
+  {
     ui: "Motion: preset buttons (with duration, delay, start, repeat, stagger), applied chips ×, Remove all motion",
     sdk: "doc.animate(ids, preset, options), doc.removeAnimations(ids, preset?), doc.getAnimations(id)",
     run: (ed) => {

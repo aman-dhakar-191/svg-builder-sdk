@@ -254,3 +254,12 @@ Measured with the SDK (paths, one attribute each changed, Node 22): opening and 
 | Export | PNG and the agent's snapshots are the drawing at rest (animations left out: an image would freeze them at t = 0, where entrances are invisible). Export adds **SVG, still** (formatted, no animations). Video / GIF / WebP export is later. | |
 | Agent | `animate_elements` and `remove_animations` tools; `get_document` lists presets per element as `motion` (not their SMIL) and the timeline length. | |
 | Not yet | A timeline panel (per-element bars), CSS animation output, motion paths in the UI, export to video. Text with animation children stays editable (setText keeps them). | |
+
+## Agent progress and page background
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Streaming | Tool calls stream, not only text: Anthropic's partial tool input (`inputJson`), and the OpenAI-compatible path now asks for a stream (`stream: true`) and reads it as it arrives, then assembles the reply from the whole stream exactly as for servers that stream unasked; a plain JSON answer still works. The main process forwards progress at most ten times a second and drops it when the call runs. | A big `add_elements` call took the whole turn with only "Working…" on screen. Revisit if a gateway mis-streams tool calls (the earlier reason for not streaming): it would show as INVALID_JSON results the model then retries. |
+| Draft shapes | While `add_elements` is written, its finished elements (all but the last, which may be cut off) are drawn on the canvas, faded in, marked `data-agent-draft`, not hit-tested, with the same sanitizing as a render; the real shapes replace them when the call runs. Not in the document, the code or undo. | The user sees the drawing grow. Other tools show their name and size so far. |
+| Working state | The chat shows what the agent is doing, with elapsed time; the page glows from the agent's orange to the app's indigo. Reduced motion: static. | |
+| Background | A full-page `<rect data-background="" x y width="100%" height="100%" fill>` placed before the first drawn element (after defs/title/style). It is real SVG, so the saved file shows it anywhere. The canvas and `topLevel()` skip it (clicks and marquees go through); it is set from Design > Background (nothing selected) or the agent's `set_background`. Export > **Include the background** (default on) leaves it out of PNG and SVG copies via `omit`. | A root `style="background"` is not drawn by every viewer and not inside `<img>`; a rect is. |

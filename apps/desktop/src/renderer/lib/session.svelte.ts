@@ -127,6 +127,8 @@ export class Session {
   canRedo = $state(false);
   /** Animation preview: its length (0 = the drawing has none), whether it plays, where it is (null = at rest). */
   motionEnd = $state(0);
+  /** Exports include the document background (Export dialog checkbox). */
+  exportBackground = $state(true);
   playing = $state(false);
   playTime: number | null = $state(null);
 
@@ -513,7 +515,7 @@ export class Session {
   async exportPng(): Promise<void> {
     this.flush();
     try {
-      const r = await window.desktop.exportPng(await this.editor.exportPng());
+      const r = await window.desktop.exportPng(await this.editor.exportPng({ omit: this.exportOmit() }));
       if (r.saved) this.showStatus(`Exported ${r.name}`, false);
     } catch (e) {
       this.showStatus(e instanceof Error ? e.message : String(e), true);
@@ -554,9 +556,15 @@ export class Session {
   }
 
   /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
+  /** What exports leave out: the background, when unticked. */
+  private exportOmit(): string[] {
+    const bg = this.editor.doc.getBackground();
+    return bg && !this.exportBackground ? [bg.id] : [];
+  }
+
   svgText(style: SvgExportStyle): string {
     this.flush();
-    return this.editor.toSvg({ pretty: style !== "minified", static: style === "static" }) + (style === "minified" ? "" : "\n");
+    return this.editor.toSvg({ pretty: style !== "minified", static: style === "static", omit: this.exportOmit() }) + (style === "minified" ? "" : "\n");
   }
 
   async exportSvg(style: SvgExportStyle): Promise<void> {

@@ -214,6 +214,12 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "set_background",
+    description:
+      'Sets the colour behind the whole page (a full-page rect behind everything, kept in the saved SVG; the user can leave it out when exporting), or removes it with null. Use it instead of drawing your own page-sized rectangle, e.g. to show a logo on black.',
+    input_schema: { type: "object", properties: { color: { type: "string", nullable: true, description: 'A CSS colour such as "#0b1020", or null for none (transparent).' } }, required: ["color"], additionalProperties: false },
+  },
+  {
     name: "set_text",
     description: "Replaces the text content of an element such as <text>.",
     input_schema: { type: "object", properties: { id, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },

@@ -106,6 +106,7 @@ const HANDLERS: Record<string, Handler> = {
       element_count: doc.query().length - 1,
       outline: tree.children.filter((c) => c.tag !== TEXT_TAG).map(outline),
       ...(doc.timelineDuration() > 0 ? { animation_seconds: doc.timelineDuration() } : {}),
+      background: doc.getBackground()?.color ?? null,
       ...(truncated ? { truncated: `Only the first ${MAX_OUTLINE_NODES} elements are listed; use query_elements for the rest.` } : {}),
     };
   },
@@ -240,6 +241,8 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   remove_animations: (t, input: { ids: NodeId[]; preset?: string }) => ({ removed: t.doc.removeAnimations(input.ids, input.preset) }),
+
+  set_background: (t, input: { color: string | null }) => ({ background: t.doc.setBackground(input.color) ? input.color : null }),
 
   set_text: (t, input: { id: NodeId; text: string }) => {
     t.doc.setText(input.id, input.text);

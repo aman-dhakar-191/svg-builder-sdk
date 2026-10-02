@@ -558,7 +558,7 @@ export class CanvasController {
     const chain: NodeId[] = [];
     while (el && el !== this.svg) {
       const id = this.nodeOf.get(el);
-      if (id !== undefined && GRAPHIC.has(el.localName)) chain.push(id);
+      if (id !== undefined && GRAPHIC.has(el.localName) && !el.hasAttribute("data-background")) chain.push(id);
       el = el.parentElement;
     }
     if (chain.length === 0) return null;

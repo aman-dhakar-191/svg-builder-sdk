@@ -111,6 +111,8 @@ export interface ExportPngOptions {
   longSide?: number;
   /** CSS colour under the drawing; default transparent. */
   background?: string;
+  /** Leave out these nodes, e.g. the document background (`doc.getBackground()?.id`) for a transparent image. */
+  omit?: NodeId[];
 }
 
 export interface LockOptions {
@@ -553,7 +555,7 @@ export class Editor {
       return { ...n, attrs, children: options.background ? [bgId, ...n.children] : n.children };
     };
     // SMIL in an image starts at t=0: export the drawing at rest instead.
-    return { svg: serialize(get, this.model.root, { static: true }), width, height };
+    return { svg: serialize(get, this.model.root, { static: true, ...(options.omit ? { omit: options.omit } : {}) }), width, height };
   }
 
   /** @internal */
@@ -766,6 +768,40 @@ export class DocumentApi {
     return transformBBox(inv, root);
   }
 
+  /**
+   * The document background: a full-page `<rect data-background>` behind everything, so
+   * the saved SVG shows it in any viewer. Exports can leave it out (`omit`). Null if none.
+   */
+  getBackground(): { id: NodeId; color: string } | null {
+    for (const c of this.getNode(this.root).children) {
+      const n = this.getNode(c);
+      if (n.tag === "rect" && "data-background" in n.attrs) return { id: c, color: n.attrs.fill ?? "black" };
+      if (n.tag !== TEXT_TAG && !NOT_DRAWN.includes(n.tag)) break;
+    }
+    return null;
+  }
+
+  /** Sets the document background colour (any CSS colour), or removes it with null. One undo step; returns its ID. */
+  setBackground(color: string | null): NodeId | null {
+    const current = this.getBackground();
+    if (color === null) {
+      if (current) this.delete(current.id);
+      return null;
+    }
+    if (typeof color !== "string" || !color.trim()) throw new SvgEditorError("INVALID_ATTR", "The background must be a CSS colour.", 'Example: "#ffffff", "black" or "rgb(10 20 30)"; null removes it.');
+    if (current) {
+      this.set(current.id, { fill: color.trim() });
+      return current.id;
+    }
+    const root = this.getNode(this.root);
+    const vb = (root.attrs.viewBox ?? "").trim().split(/[\s,]+/).map(Number);
+    const [x, y] = vb.length === 4 && vb.every(Number.isFinite) ? vb : [0, 0];
+    // After <defs>/<title> and the like, before anything drawn.
+    let index = 0;
+    while (index < root.children.length && [TEXT_TAG, ...NOT_DRAWN].includes(this.getNode(root.children[index]!).tag)) index++;
+    return this.add("rect", { "data-background": "", x: x!, y: y!, width: "100%", height: "100%", fill: color.trim() }, { index });
+  }
+
   // ----------------------------------------------------------------- read
 
   /** Plain-data tree (no DOM). Throws NOT_FOUND for an unknown ID. */
@@ -797,7 +833,8 @@ export class DocumentApi {
     const walk = (id: NodeId) => {
       for (const c of this.getNode(id).children) {
         const n = this.getNode(c);
-        if (n.tag === TEXT_TAG) continue;
+        // The document background is set in the Document panel, not picked on the canvas.
+        if (n.tag === TEXT_TAG || (n.tag === "rect" && "data-background" in n.attrs)) continue;
         if (n.tag === "g" && n.attrs["inkscape:groupmode"] === "layer") walk(c);
         else out.push(c);
       }
@@ -864,6 +901,9 @@ export class DocumentApi {
     return applyToPoint(this.toRootMatrix(id), p);
   }
 }
+
+/** Root children that draw nothing; the background goes after them. */
+const NOT_DRAWN = ["defs", "title", "desc", "metadata", "style"];
 
 function notFound(id: NodeId): SvgEditorError {
   return new SvgEditorError("NOT_FOUND", `No node with id "${id}".`, "Call doc.query() or doc.getTree() to list current node IDs.");

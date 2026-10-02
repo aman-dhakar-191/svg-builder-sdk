@@ -269,3 +269,17 @@ describe("animation tools", () => {
     expect((tool.input_schema.properties as Record<string, { enum?: string[] }>).preset!.enum).toEqual([...MOTION_PRESETS]);
   });
 });
+
+describe("background tool", () => {
+  it("set_background sets, reports and removes the page background; undoable", async () => {
+    expect((await ok("set_background", { color: "#0b1020" })).background).toBe("#0b1020");
+    expect((await ok("get_document")).background).toBe("#0b1020");
+    expect(editor.doc.topLevel().some((id) => "data-background" in editor.doc.getNode(id).attrs)).toBe(false);
+    expect((await ok("set_background", { color: null })).background).toBeNull();
+    expect((await ok("get_document")).background).toBeNull();
+    expect((await err("set_background", {})).code).toBe("INVALID_INPUT");
+    session.commit();
+    editor.undo();
+    expect(editor.text).toBe(SRC);
+  });
+});
