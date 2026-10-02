@@ -96,6 +96,10 @@ button:disabled { cursor: default; }
 
 /* Canvas engine (canvas.ts / viewport.ts render into these) */
 #canvas { position: absolute; inset: 0; overflow: auto; display: flex; padding: 32px; background: var(--desk); }
+/* The page's own colour (Settings > Editor): light by default, so dark artwork stays readable in the dark theme. */
+:root[data-page="light"] { --paper: #ffffff; --checker: #eaebf2; }
+:root[data-page="dark"] { --paper: #1b1c28; --checker: #20212d; }
+
 #canvas > svg {
   margin: auto; flex: none; overflow: visible; background-color: var(--paper);
   background-image: conic-gradient(var(--checker) 25%, transparent 0 50%, var(--checker) 0 75%, transparent 0); background-size: 16px 16px;

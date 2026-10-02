@@ -107,5 +107,17 @@
   #lock-label { overflow: hidden; text-overflow: ellipsis; }
   .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--warm); animation: pulse 1.2s ease-in-out infinite; flex: none; }
   @keyframes pulse { 50% { opacity: 0.3; transform: scale(0.8); } }
-  .locked :global(#canvas > svg) { box-shadow: 0 0 0 2px var(--warm), 0 4px 18px rgb(0 0 0 / 0.14); }
+  /* While the agent works: the page glows, shifting from the agent's orange to the app's indigo. */
+  .locked :global(#canvas > svg) { animation: agent-glow 2.4s ease-in-out infinite; }
+  @keyframes agent-glow {
+    0%, 100% { box-shadow: 0 0 0 2px var(--warm), 0 0 22px 2px color-mix(in srgb, var(--warm) 45%, transparent); }
+    50% { box-shadow: 0 0 0 2px var(--ink), 0 0 34px 6px color-mix(in srgb, var(--ink) 40%, transparent); }
+  }
+  /* Shapes the agent is still writing fade in; they are not part of the drawing yet. */
+  :global(#canvas [data-agent-draft]) { pointer-events: none; animation: draft-in 420ms var(--ease) both; }
+  @keyframes draft-in { from { opacity: 0; filter: blur(3px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .locked :global(#canvas > svg) { animation: none; box-shadow: 0 0 0 2px var(--warm); }
+    :global(#canvas [data-agent-draft]) { animation: none; }
+  }
 </style>

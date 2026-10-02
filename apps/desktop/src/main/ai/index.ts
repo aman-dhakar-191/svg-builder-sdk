@@ -2,6 +2,7 @@ import { ipcMain, type WebContents } from "electron";
 import type { AiEvent, AiRunResult, AiSettings, AiTestResult, AiToolCall, AiToolOutcome } from "../../shared/ai.js";
 import { anthropicProvider } from "./anthropic.js";
 import { openaiProvider } from "./openai.js";
+import { throttle } from "./partial.js";
 import { ProviderError, type Provider } from "./provider.js";
 import { getApiKey, getSettings, parseUpdate, saveSettings, view } from "./settings.js";
 
@@ -138,6 +139,10 @@ export function registerAiIpc(): void {
     const start = c.history.length;
     let text = "";
     let result: AiRunResult;
+    // Progress of a tool call being written, about ten times a second; a call that starts drops the rest.
+    const draft = throttle(100, (tool: string, chars: number, partial: unknown) =>
+      emit(sender, { turnId, type: "draft", tool, chars, ...(tool === "add_elements" && partial !== undefined ? { input: partial } : {}) }),
+    );
     try {
       const r = await providerFor(settings).runTurn({
         settings,
@@ -146,7 +151,11 @@ export function registerAiIpc(): void {
         history: c.history,
         signal: controller.signal,
         maxToolRounds: MAX_TOOL_ROUNDS,
-        callTool: (name, input) => callTool(sender, turnId, controller.signal, name, input),
+        callTool: (name, input) => {
+          draft.cancel();
+          return callTool(sender, turnId, controller.signal, name, input);
+        },
+        onToolDraft: (name, chars, partial) => draft.call(name, chars, partial),
         onText: (delta) => {
           text += delta;
           emit(sender, { turnId, type: "text", delta });
@@ -158,6 +167,7 @@ export function registerAiIpc(): void {
       else if (err instanceof ProviderError) result = { status: "error", text, message: err.message };
       else result = { status: "error", text, message: `Unexpected error: ${err instanceof Error ? err.message : String(err)}` };
     } finally {
+      draft.cancel();
       c.run = null;
     }
     // Only a finished turn is kept: the renderer discards the drawing changes

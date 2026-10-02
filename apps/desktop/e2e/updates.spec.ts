@@ -38,7 +38,8 @@ async function feed(version: () => string): Promise<string> {
 }
 
 test.afterEach(async () => {
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
+  // Closing the last window quits the app, which can exit before this call returns.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy())).catch(() => {});
   await app.close();
   server?.close();
   server = null;

@@ -158,6 +158,13 @@
           <label class="check"><input type="checkbox" checked={session.grid} onchange={() => session.viewport?.toggleGrid()} /><span>Show grid</span></label>
           <label class="check"><input type="checkbox" checked={session.snap} onchange={() => session.viewport?.toggleSnap()} /><span>Snap to grid</span></label>
           <label class="check"><input type="checkbox" checked={session.snapShapes} onchange={() => session.toggleSnapShapes()} /><span>Snap to shapes <small>(edges and centres of other shapes and the page, with guide lines; hold Alt while dragging to turn it off)</small></span></label>
+          <label class="row-field"><span>Page colour</span>
+            <select class="input" id="page-color" value={session.page} onchange={(e) => session.setPage((e.target as HTMLSelectElement).value as "light" | "dark" | "theme")}>
+              <option value="light">Light (shows dark artwork)</option>
+              <option value="dark">Dark</option>
+              <option value="theme">Match the app theme</option>
+            </select>
+          </label>
           <p class="hint">Hold Shift while dragging to keep straight lines and proportions; hold Alt while dragging a path point to move it without its handles.</p>
         </div>
       {:else}
@@ -199,6 +206,8 @@
   .combo .input { flex: 1; }
   .boxed { border: 1px solid var(--line); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .row-field select { width: auto; }
   .check, .radio { display: flex; align-items: center; gap: 8px; }
   .check input, .radio input { accent-color: var(--ink); width: 16px; height: 16px; }
   fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }

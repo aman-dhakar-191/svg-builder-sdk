@@ -14,6 +14,8 @@ export interface SerializeOptions {
   indent?: string;
   /** Leave out animation elements (<animate>, <animateTransform>, <animateMotion>, <set>): the drawing at rest. */
   static?: boolean;
+  /** Leave out these nodes (and what is inside them), e.g. the background for a transparent export. */
+  omit?: readonly NodeId[];
 }
 
 export function escapeAttr(value: string, quote: '"' | "'" = '"'): string {
@@ -33,12 +35,13 @@ export function escapeText(value: string): string {
  */
 export function serialize(get: (id: NodeId) => SvgNode, root: NodeId, options: SerializeOptions = {}): string {
   const indent = options.indent ?? "  ";
-  const kept = (c: NodeId) => !options.static || !ANIMATION_TAGS.has(get(c).tag);
+  const omit = new Set(options.omit ?? []);
+  const kept = (c: NodeId) => !omit.has(c) && (!options.static || !ANIMATION_TAGS.has(get(c).tag));
   const write = (id: NodeId, depth: number, pretty: boolean): string => {
     const n = get(id);
     let children = n.children.filter(kept);
     // Only the indentation around removed animations left: an empty element.
-    if (children.length < n.children.length && children.every((c) => get(c).tag === TEXT_TAG && !get(c).text?.trim())) children = [];
+    if (children.length < n.children.length && children.length > 0 && children.every((c) => get(c).tag === TEXT_TAG && !get(c).text?.trim())) children = [];
     if (n.tag === TEXT_TAG) return escapeText(n.text ?? "");
     const attrs = Object.entries(n.attrs)
       .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)

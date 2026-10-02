@@ -19,7 +19,8 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
+  // Closing the last window quits the app, which can exit before this call returns.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy())).catch(() => {});
   await app.close();
 });
 
@@ -280,4 +281,50 @@ test("new document asks before discarding unsaved changes", async () => {
   await (await prompt).accept();
   await expect(page.locator("#canvas svg > *")).toHaveCount(0);
   expect(await title()).toBe("Untitled.svg — Curvant");
+});
+
+test("a page background: set in the Document panel, clicks go through it, Export can leave it out", async () => {
+  const read = (p: string) => {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  // Nothing selected: the Document panel. Pick a colour by typing it.
+  await page.locator("#canvas").focus();
+  await page.keyboard.press("Escape");
+  await page.locator("#doc-background").getByLabel("Background value").fill("#0b1020");
+  await page.locator("#doc-background").getByLabel("Background value").press("Enter");
+  await expect.poll(code).toContain('<rect data-background="" x="0" y="0" width="100%" height="100%" fill="#0b1020"/>');
+  await expect(page.locator("#canvas svg > rect[data-background]")).toHaveAttribute("fill", "#0b1020");
+
+  // A click on the empty page selects nothing (not the background).
+  const box = (await page.locator("#canvas svg").boundingBox())!;
+  await page.mouse.click(box.x + box.width - 6, box.y + box.height - 6);
+  expect(await editor((e) => e.editor.doc.query().length)).toBeGreaterThan(0);
+  expect(await page.evaluate(`window.editor.editor.getSelection().length`)).toBe(0);
+
+  // Export with and without it.
+  const withBg = join(dir, "with.svg");
+  await stubSave(withBg);
+  await page.getByRole("button", { name: "Export" }).click();
+  await expect(page.locator("#export-background input")).toBeChecked();
+  await page.locator('[data-export="formatted"]').click();
+  await expect.poll(() => read(withBg)).toContain("data-background");
+
+  const without = join(dir, "without.svg");
+  await stubSave(without);
+  await page.getByRole("button", { name: "Export" }).click();
+  await page.locator("#export-background input").uncheck();
+  await page.locator('[data-export="formatted"]').click();
+  await expect.poll(() => read(without)).toContain("<rect");
+  expect(read(without)).not.toContain("data-background");
+
+  // "None" removes it; one Ctrl+Z brings it back.
+  await page.locator("#doc-background").getByRole("button", { name: "None" }).click();
+  await expect.poll(code).not.toContain("data-background");
+  await page.locator("#canvas").focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toContain("data-background");
 });

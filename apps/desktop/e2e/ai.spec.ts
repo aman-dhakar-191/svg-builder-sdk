@@ -28,7 +28,8 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
+  // Closing the last window quits the app, which can exit before this call returns.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy())).catch(() => {});
   await app.close();
   await mock.stop();
   rmSync(userData, { recursive: true, force: true });
@@ -301,15 +302,43 @@ test("models without image input: no snapshot tool, and Test connection says so"
   await expect(page.locator("#ai-settings-status")).toContainText("this model does not accept images");
 });
 
-test("OpenAI-compatible gateway that streams even when asked not to", async () => {
+test("OpenAI-compatible turns stream; a server that answers with plain JSON still works", async () => {
   await configure("openai-compatible", "claude-code");
-  mock.openaiStreams = true;
   mock.script([{ text: "Drawing.", tools: [{ name: "add_elements", input: HOUSE }] }, { text: "Done: a house with a red door." }]);
   await ask("draw a simple house with a red door");
   await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Drawing.\n\nDone: a house with a red door.");
   expect(await code()).toMatch(/<rect id="door"[^>]*fill="#dc2626"/);
-  expect(mock.requests[0]!.body.stream).toBe(false);
+  expect(mock.requests[0]!.body.stream).toBe(true);
 });
+
+/** Shapes the agent is still writing: drawn on the canvas before the call runs, not in the document. */
+const drafts = () => page.locator("#canvas [data-agent-draft]").count();
+
+for (const format of ["anthropic", "openai-compatible"] as const) {
+  test(`streaming (${format}): shapes appear on the canvas while the agent writes them, with live progress`, async () => {
+    await configure(format, format === "anthropic" ? "claude-test-model" : "claude-code");
+    const many = { elements: Array.from({ length: 12 }, (_, i) => ({ tag: "circle", attributes: { cx: 20 + i * 14, cy: 60, r: 6, fill: "#4f46e5" } })) };
+    mock.slowMs = 40;
+    const hold = gate();
+    mock.script([{ tools: [{ name: "add_elements", input: many }] }, { text: "Twelve dots." }], [undefined, hold.promise]);
+    const original = await code();
+    await ask("draw twelve dots");
+    // Mid-call: drafts on the canvas, the code untouched, the label counting shapes.
+    await expect.poll(drafts).toBeGreaterThan(2);
+    expect(await code()).toBe(original);
+    await expect(page.locator("#agent-live")).toContainText(/Drawing · \d+ shapes? so far · \d+ B/);
+    // The size counts the whole call so far, not the last chunk (40 characters each here).
+    await expect.poll(async () => Number(/(\d+) B/.exec((await page.locator("#agent-live").textContent()) ?? "")?.[1] ?? 0)).toBeGreaterThan(200);
+    await expect(page.locator("#lock-banner")).toBeVisible();
+    // The call runs: the drafts give way to the real shapes.
+    await expect.poll(() => page.locator(`#canvas svg > circle[r="6"]`).count()).toBe(12);
+    expect(await drafts()).toBe(0);
+    await expect(page.locator("#agent-live")).toContainText(/Thinking about the next step|Add shapes/);
+    hold.open();
+    await expect(page.locator(".chat-msg.assistant").last()).toHaveText("Twelve dots.");
+    await expect(page.locator("#agent-live")).toHaveCount(0);
+  });
+}
 
 test("model picker lists the endpoint's models (both formats); any name can still be typed", async () => {
   mock.models = ["gpt-a", "claude-code", "llama-3"];

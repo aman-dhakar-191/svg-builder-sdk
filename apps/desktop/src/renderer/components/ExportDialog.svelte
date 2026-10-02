@@ -9,12 +9,17 @@
   import Dialog from "./Dialog.svelte";
 
   const open = $derived(session.overlay === "export");
+  const background = $derived.by(() => {
+    void session.docVersion;
+    return session.editor.doc.getBackground();
+  });
 
   // Sizes are measured when the dialog opens, so the user can see what minifying saves.
   let sizes: Record<SvgExportStyle, number> | null = $state(null);
   $effect(() => {
     if (!open) return;
     const bytes = (s: string) => new TextEncoder().encode(s).length;
+    void session.exportBackground;
     sizes = untrack(() => ({ formatted: bytes(session.svgText("formatted")), minified: bytes(session.svgText("minified")), static: bytes(session.svgText("static")) }));
   });
 
@@ -34,6 +39,13 @@
       <h2>Export a copy</h2>
       <p class="lead">The open file stays as it is. Use Save to keep your own formatting.</p>
     </div>
+    {#if background}
+      <label class="check" id="export-background">
+        <input type="checkbox" bind:checked={session.exportBackground} />
+        <span class="swatch" style:background={background.color}></span>
+        <span>Include the background <small>(off: transparent)</small></span>
+      </label>
+    {/if}
     <div class="choices">
       <button data-export="png" onclick={() => choose(() => void session.exportPng())}>
         <FileImage size={18} /><strong>PNG image</strong><span>At the drawing's size{#if session.motionEnd > 0}, without motion{/if}</span>
@@ -66,5 +78,9 @@
   .choices button:hover, .choices button:focus-visible { border-color: var(--line-strong); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
   .choices :global(svg) { grid-row: span 2; color: var(--ink); }
   strong { font-weight: 600; }
-  span { font-size: 12px; color: var(--muted); }
+  .check { display: flex; align-items: center; gap: 8px; }
+  .check input { accent-color: var(--ink); width: 16px; height: 16px; }
+  .check small { color: var(--muted); }
+  .swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line-strong); }
+  .choices span { font-size: 12px; color: var(--muted); }
 </style>

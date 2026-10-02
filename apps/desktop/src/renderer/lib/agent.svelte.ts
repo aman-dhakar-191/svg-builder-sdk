@@ -31,6 +31,8 @@ export interface Turn {
   reply: string;
   notes: { text: string; error: boolean }[];
   status: "running" | "done" | "stopped" | "failed";
+  /** The tool call the model is writing right now (streamed), until it runs. */
+  writing?: { tool: string; chars: number; shapes: number } | null;
   startedAt: number;
   endedAt?: number;
   /** Document version right after this turn was committed: "Undo this turn" needs it unchanged. */
@@ -70,7 +72,11 @@ class Agent {
       const t = this.live?.turn;
       if (!t || e.turnId !== t.id) return;
       if (e.type === "text") t.reply += e.delta;
-      else t.notes.push({ text: e.message, error: false });
+      else if (e.type === "draft") {
+        const elements = (e.input as { elements?: unknown } | undefined)?.elements;
+        t.writing = { tool: e.tool, chars: e.chars, shapes: Array.isArray(elements) ? Math.max(0, elements.length - 1) : 0 };
+        if (Array.isArray(elements)) session.canvas?.showDraft(elements);
+      } else t.notes.push({ text: e.message, error: false });
     });
     api.onToolCall((call) => void this.runTool(call));
     void this.loadSettings();
@@ -125,6 +131,8 @@ class Agent {
       }
     } finally {
       t.endedAt = Date.now();
+      t.writing = null;
+      session.canvas?.clearDraft();
       for (const s of t.steps) {
         if (s.state !== "running") continue;
         s.state = "error";
@@ -141,6 +149,8 @@ class Agent {
       api.sendToolResult(call.callId, { ok: false, error: { code: "STOPPED", message: "The turn has ended.", hint: "Do not continue." } });
       return;
     }
+    live.turn.writing = null;
+    session.canvas?.clearDraft();
     live.turn.steps.push({ name: call.name, input: JSON.stringify(call.input).slice(0, 400), state: "running" });
     const step = live.turn.steps.at(-1)!;
     const s = live.lock;

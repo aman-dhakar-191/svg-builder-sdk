@@ -21,13 +21,15 @@ apps/
 
 The title bar switches between two views of the same drawing (Ctrl+E):
 - **Editor:** tool rail, code pane, canvas and an inspector with **Design** (position, fill, stroke, opacity, align, combine, all attributes) and **Layers** (reorder by dragging, show/hide).
-- **Agent:** a chat beside the canvas. Each turn lists the steps the agent took (with its snapshots), and **Undo this turn** / **Open in editor** follow a finished turn.
+- **Agent:** a chat beside the canvas. While the agent works you see what it is doing (planning, drawing N shapes so far, checking its work) and its shapes appear on the canvas as it writes them. Each turn lists the steps the agent took (with its snapshots), and **Undo this turn** / **Open in editor** follow a finished turn.
 
 Moving a shape snaps its edges and centres to other shapes and the page, with guide lines (Alt while dragging: off). Double-click a path to edit its points: double-click the outline to add one, Delete to remove it, double-click a point for corner / smooth.
 
 **Motion:** Design > Motion animates the selection with a preset (fade, slide or pop in, draw on; spin, pulse, float, wiggle), with duration, delay, start (on open, click or hover), repeat and, for several shapes, a stagger. It is saved as SMIL in the SVG, so it plays in browsers. A play bar under the canvas previews and scrubs it; while you edit, the canvas shows the end of the motion. The agent can animate too ("make the logo draw itself on").
 
-**Export…** (Ctrl+Shift+E) writes a PNG, a formatted SVG or a minified SVG copy (and, for an animated drawing, a still SVG without the motion). Pointing at markup in the code pane outlines its element on the canvas; Alt+drag on a number there changes it (Shift: 10x faster, Esc: cancel). **Ctrl+K** opens a command palette with every action; **Ctrl+,** opens Settings (AI model, theme, grid and snapping, the shortcut list). File > Open Recent and the start screen list recent files. The app follows the system light/dark theme unless one is picked, and animations are turned off when the system asks for reduced motion.
+**Background:** with nothing selected, Design > Background sets a colour behind the whole page (saved in the SVG, so it shows everywhere); clicks on the canvas go through it, and Export has **Include the background** (off: a transparent image).
+
+**Export…** (Ctrl+Shift+E) writes a PNG, a formatted SVG or a minified SVG copy (and, for an animated drawing, a still SVG without the motion). Pointing at markup in the code pane outlines its element on the canvas; Alt+drag on a number there changes it (Shift: 10x faster, Esc: cancel). **Ctrl+K** opens a command palette with every action; **Ctrl+,** opens Settings (AI model, theme, grid and snapping, the shortcut list). File > Open Recent and the start screen list recent files. The app follows the system light/dark theme unless one is picked (the page under the drawing stays light, so dark artwork stays readable; Settings > Editor > Page colour changes that), and animations are turned off when the system asks for reduced motion.
 
 ### AI model
 

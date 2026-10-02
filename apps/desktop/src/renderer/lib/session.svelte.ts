@@ -29,6 +29,8 @@ declare global {
 
 export type Mode = "editor" | "agent";
 export type Theme = "system" | "light" | "dark";
+/** The page under the drawing: always light, always dark, or following the app theme. */
+export type PageColor = "light" | "dark" | "theme";
 export type Overlay = "palette" | "settings" | "start" | "export" | null;
 export interface Status {
   text: string;
@@ -71,6 +73,15 @@ const codeHighlight = HighlightStyle.define([
   { tag: [tags.processingInstruction, tags.documentMeta], color: "var(--muted)" },
 ]);
 
+function readPage(): PageColor {
+  try {
+    const p = localStorage.getItem("page");
+    return p === "dark" || p === "theme" ? p : "light";
+  } catch {
+    return "light";
+  }
+}
+
 function readTheme(): Theme {
   try {
     const t = localStorage.getItem("theme");
@@ -109,12 +120,15 @@ export class Session {
   private manualUpdateCheck = false;
   overlay: Overlay = $state(null);
   theme: Theme = $state(readTheme());
+  page: PageColor = $state(readPage());
   canUndo = $state(false);
   /** The code does not parse (the canvas keeps the last good drawing). */
   codeError: string | null = $state(null);
   canRedo = $state(false);
   /** Animation preview: its length (0 = the drawing has none), whether it plays, where it is (null = at rest). */
   motionEnd = $state(0);
+  /** Exports include the document background (Export dialog checkbox). */
+  exportBackground = $state(true);
   playing = $state(false);
   playTime: number | null = $state(null);
 
@@ -322,9 +336,7 @@ export class Session {
       this.view.dispatch(setDiagnostics(this.view.state, []));
       this.codeError = null;
     }
-    this.canvas?.render();
-    this.viewport?.apply();
-    this.canvas?.refresh();
+    this.scheduleCanvas();
     this.docVersion++;
     this.selection = this.editor.getSelection();
     this.canUndo = this.editor.canUndo();
@@ -332,6 +344,25 @@ export class Session {
     this.highlight(this.selection);
     this.showSelectionStatus(this.selection);
     this.updateDirty();
+  }
+
+  private canvasQueued = false;
+
+  /** One canvas update per change, however many mutations it had (they arrive one by one). */
+  private scheduleCanvas(): void {
+    if (this.canvasQueued) return;
+    this.canvasQueued = true;
+    queueMicrotask(() => {
+      this.canvasQueued = false;
+      this.syncCanvas();
+    });
+  }
+
+  /** Brings the canvas up to date now (for code that uses it right after a change). */
+  syncCanvas(): void {
+    this.canvas?.update();
+    this.viewport?.apply();
+    this.canvas?.refresh();
   }
 
   private onSelectionChange(ids: NodeId[]): void {
@@ -484,7 +515,7 @@ export class Session {
   async exportPng(): Promise<void> {
     this.flush();
     try {
-      const r = await window.desktop.exportPng(await this.editor.exportPng());
+      const r = await window.desktop.exportPng(await this.editor.exportPng({ omit: this.exportOmit() }));
       if (r.saved) this.showStatus(`Exported ${r.name}`, false);
     } catch (e) {
       this.showStatus(e instanceof Error ? e.message : String(e), true);
@@ -525,9 +556,15 @@ export class Session {
   }
 
   /** A copy of the drawing as SVG text (the code pane keeps the original formatting). */
+  /** What exports leave out: the background, when unticked. */
+  private exportOmit(): string[] {
+    const bg = this.editor.doc.getBackground();
+    return bg && !this.exportBackground ? [bg.id] : [];
+  }
+
   svgText(style: SvgExportStyle): string {
     this.flush();
-    return this.editor.toSvg({ pretty: style !== "minified", static: style === "static" }) + (style === "minified" ? "" : "\n");
+    return this.editor.toSvg({ pretty: style !== "minified", static: style === "static", omit: this.exportOmit() }) + (style === "minified" ? "" : "\n");
   }
 
   async exportSvg(style: SvgExportStyle): Promise<void> {
@@ -558,6 +595,7 @@ export class Session {
         return this.showStatus(e instanceof Error ? e.message : String(e), true);
       }
       this.editor.select(paths);
+      this.syncCanvas();
       if (paths.length === 1) this.canvas?.editNodes(paths[0]!);
       else this.showStatus(`Converted ${paths.length} shapes to paths.`, false);
     });
@@ -641,6 +679,7 @@ export class Session {
         return this.showStatus(e instanceof SvgEditorError ? `${e.message} ${e.hint}` : String(e), true);
       }
       this.showStatus(`${PRESET_INFO[preset].label} added${ids.length > 1 ? ` to ${ids.length} shapes` : ""}. Ctrl+Z to undo.`, false);
+      this.syncCanvas();
       if (!reducedMotion()) this.canvas?.playback.play();
     });
   }
@@ -710,8 +749,21 @@ export class Session {
     this.applyTheme();
   }
 
+  setPage(page: PageColor): void {
+    this.page = page;
+    try {
+      if (page === "light") localStorage.removeItem("page");
+      else localStorage.setItem("page", page);
+    } catch {
+      // Storage unavailable: the choice lasts for this session only.
+    }
+    this.applyTheme();
+  }
+
   private applyTheme(): void {
     const root = document.documentElement;
+    if (this.page === "theme") delete root.dataset.page;
+    else root.dataset.page = this.page;
     if (this.theme === "system") delete root.dataset.theme;
     else root.dataset.theme = this.theme;
     const dark = this.theme === "dark" || (this.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);

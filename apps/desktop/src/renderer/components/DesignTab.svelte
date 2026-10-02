@@ -46,6 +46,7 @@
   });
   /** Colours already used in the drawing, most used first: the palette to pick from. */
   const palette = $derived.by(() => {
+    void session.docVersion;
     const count = new Map<string, number>();
     for (const id of doc.query()) {
       const a = doc.getNode(id).attrs;
@@ -53,7 +54,23 @@
     }
     return [...count.entries()].sort((x, y) => y[1] - x[1]).slice(0, 12).map(([c]) => c);
   });
-  const root = $derived(doc.getNode(doc.root));
+  const root = $derived.by(() => {
+    void session.docVersion;
+    return doc.getNode(doc.root);
+  });
+  const background = $derived.by(() => {
+    void session.docVersion; // `doc` is the same object after a change
+    return doc.getBackground();
+  });
+  function setBackground(v: string | null): void {
+    session.guard(() => {
+      try {
+        doc.setBackground(v === null || v === "none" || v === "transparent" ? null : v);
+      } catch (e) {
+        session.showStatus(e instanceof Error ? e.message : String(e), true);
+      }
+    });
+  }
 
   let showAll = $state(false);
   let newName = $state("");
@@ -119,6 +136,11 @@
       <input class="input mono" value={root.attrs.viewBox ?? ""} placeholder="none" spellcheck="false" onchange={(e) => set(root.id, { viewBox: (e.target as HTMLInputElement).value.trim() || null })} />
     </label>
     <p class="hint">Select a shape to edit it. Double-click a path to move its points.</p>
+  </section>
+  <section class="sec" id="doc-background">
+    <h3 class="eyebrow">Background</h3>
+    <ColorField label="Background" value={background?.color ?? "none"} {palette} oncommit={setBackground} />
+    <p class="hint">Behind the whole page. Export can leave it out for a transparent image.</p>
   </section>
 {:else if ids.length > 1}
   <section class="sec">

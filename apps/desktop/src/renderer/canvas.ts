@@ -1,4 +1,4 @@
-import { formatPath, movePathPoints, nearestOnPath, oppositeHandle, pointOnSegment, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "@svg-editor/sdk";
+import { ANIMATION_TAGS, TEXT_TAG, formatPath, movePathPoints, nearestOnPath, oppositeHandle, pointOnSegment, type BBox, type Command, type Editor, type NodeId, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "@svg-editor/sdk";
 import {
   angleBetween,
   anchorPoint,
@@ -19,7 +19,7 @@ import {
   type Rect,
 } from "./geometry.js";
 import { Playback } from "./playback.js";
-import { renderTree } from "./render.js";
+import { applyAttrs, renderTree, skipped } from "./render.js";
 
 export type Tool = "select" | "rect" | "ellipse" | "line" | "text";
 
@@ -70,6 +70,12 @@ interface Item {
 export class CanvasController {
   private svg: SVGSVGElement | null = null;
   private nodeOf = new WeakMap<Element, NodeId>();
+  private domOf = new Map<NodeId, Element | Text>();
+  private ns: Record<string, string> = {};
+  /** Changes since the last render: attribute / text changes can be patched in place; anything else rebuilds. */
+  private changed = new Set<NodeId>();
+  private structural = false;
+  private unsubscribeMutations: () => void;
   private elOf = new Map<NodeId, SVGGraphicsElement>();
   private gesture: Gesture | null = null;
   private _tool: Tool = "select";
@@ -91,6 +97,10 @@ export class CanvasController {
   private guides: { x?: { at: number; from: number; to: number }; y?: { at: number; from: number; to: number } } | null = null;
   /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
   private hover: NodeId | null = null;
+  /** Shapes the agent is still writing (not in the document yet): shown faded in, never hit-tested. */
+  private draftNodes: Element[] = [];
+  /** Every draft element in input order (null: skipped), so new ones are added without redrawing the rest. */
+  private draftMade: (Element | null)[] = [];
   /** SMIL preview; between previews the drawing rests at the end of its timeline. */
   readonly playback = new Playback();
   /** Told when playback starts, stops or moves. */
@@ -103,6 +113,7 @@ export class CanvasController {
     private readonly onTool: (tool: Tool) => void,
   ) {
     this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
+    this.unsubscribeMutations = this.watch(editor);
     host.addEventListener("dblclick", (e) => this.doubleClick(e));
     overlay.addEventListener("dblclick", (e) => this.doubleClick(e));
     host.addEventListener("keyup", (e) => {
@@ -129,7 +140,53 @@ export class CanvasController {
     this.exitNodeEdit();
     this.editor = editor;
     this.unsubscribe = editor.onSelectionChange(() => this.selectionChanged());
+    this.unsubscribeMutations();
+    this.unsubscribeMutations = this.watch(editor);
     this.render();
+  }
+
+  private watch(editor: Editor): () => void {
+    return editor.onMutation((m) => {
+      if (m.kind === "attrs" || m.kind === "text") this.changed.add(m.id);
+      else this.structural = true;
+    });
+  }
+
+  /**
+   * Brings the canvas up to date after a document change: attribute and text changes
+   * are patched into the existing DOM (large drawings stay fast); added, removed or moved
+   * nodes, and changes to animations, rebuild it.
+   */
+  update(): void {
+    if (!this.structural && this.changed.size === 0) return;
+    if (!this.patch()) return this.render();
+    this.afterRender();
+  }
+
+  /**
+   * Patches pending attribute / text changes into the DOM, with no other side effects
+   * (safe while measuring). False when they need a rebuild instead.
+   */
+  private patch(): boolean {
+    if (this.svg === null || this.structural) return false;
+    const doc = this.editor.doc;
+    const ids = [...this.changed];
+    const patchable = ids.every((id) => {
+      const n = doc.has(id) ? doc.getNode(id) : null;
+      if (!n) return false;
+      if (n.tag !== TEXT_TAG && skipped(n.tag)) return true; // not on the canvas
+      return this.domOf.has(id) && !ANIMATION_TAGS.has(n.tag);
+    });
+    if (!patchable) return false;
+    this.changed.clear();
+    for (const id of ids) {
+      const dom = this.domOf.get(id);
+      if (!dom) continue;
+      const n = doc.getNode(id);
+      if (dom instanceof Text) dom.data = n.text ?? "";
+      else applyAttrs(dom, n.attrs, this.ns);
+    }
+    return true;
   }
 
   /** The selection lives in the SDK editor; the canvas only draws it. */
@@ -341,6 +398,9 @@ export class CanvasController {
    * units, from the live DOM (works for paths and text, unlike headless).
    */
   measure(id: NodeId): BBox | null {
+    // A change may not have reached the canvas yet. Only patch here: measuring runs inside
+    // Svelte's derivations, which must not set state (a full update notifies the panels).
+    this.patch();
     const el = this.elOf.get(id);
     const rootCtm = this.svg?.getScreenCTM();
     const ctm = el?.getScreenCTM();
@@ -361,11 +421,63 @@ export class CanvasController {
     }
   }
 
+  /**
+   * Previews an add_elements call the agent is still writing: its finished elements
+   * ("$N" parents, existing parents, or the root), with the canvas's safety rules.
+   * Replaced by the real shapes when the call runs.
+   */
+  showDraft(elements: unknown): void {
+    const svg = this.svg;
+    if (!svg || !Array.isArray(elements)) return;
+    // The last element may still be streaming: leave it out until the next one starts.
+    const done = elements.slice(0, -1);
+    if (done.length < this.draftMade.length || (this.draftNodes[0] && !this.draftNodes[0].isConnected)) this.clearDraft();
+    const made = this.draftMade;
+    for (const raw of done.slice(made.length)) {
+      const el = raw as { tag?: unknown; attributes?: unknown; text?: unknown; parent?: unknown };
+      if (typeof el?.tag !== "string" || !/^[A-Za-z][\w-]*$/.test(el.tag) || skipped(el.tag)) {
+        made.push(null);
+        continue;
+      }
+      const node = document.createElementNS("http://www.w3.org/2000/svg", el.tag);
+      const attrs: Record<string, string> = {};
+      if (el.attributes && typeof el.attributes === "object") {
+        for (const [k, v] of Object.entries(el.attributes)) if (typeof v === "string" || typeof v === "number") attrs[k] = String(v);
+      }
+      applyAttrs(node, attrs, this.ns);
+      if (typeof el.text === "string") node.textContent = el.text;
+      const ref = typeof el.parent === "string" ? el.parent : null;
+      const index = ref && /^\$(\d+)$/.test(ref) ? Number(ref.slice(1)) : -1;
+      const parent = index >= 0 ? made[index] : ref ? this.domOf.get(ref) : svg;
+      if (!(parent instanceof Element)) {
+        made.push(null);
+        continue;
+      }
+      parent.appendChild(node);
+      made.push(node);
+      if (index < 0) {
+        node.setAttribute("data-agent-draft", "");
+        this.draftNodes.push(node);
+      }
+    }
+  }
+
+  clearDraft(): void {
+    for (const n of this.draftNodes) n.remove();
+    this.draftNodes = [];
+    this.draftMade = [];
+  }
+
   /** Rebuilds the canvas from the model and keeps the selection where possible. */
   render(): void {
-    const { svg, nodeOf } = renderTree(this.editor.doc.getTree());
+    this.changed.clear();
+    this.structural = false;
+    this.clearDraft();
+    const { svg, nodeOf, domOf, ns } = renderTree(this.editor.doc.getTree());
     this.svg = svg;
     this.nodeOf = nodeOf;
+    this.domOf = domOf;
+    this.ns = ns;
     this.elOf.clear();
     const walk = (el: Element) => {
       const id = nodeOf.get(el);
@@ -376,6 +488,10 @@ export class CanvasController {
     this.host.replaceChildren(svg);
     this.playback.end = previewEnd(this.editor);
     this.playback.attach(svg);
+    this.afterRender();
+  }
+
+  private afterRender(): void {
     // The document changed (an undo, a drag): refresh what the inspector shows for the selected point.
     if (this.nodeEdit !== null && this.activeNode !== null) {
       try {
@@ -442,7 +558,7 @@ export class CanvasController {
     const chain: NodeId[] = [];
     while (el && el !== this.svg) {
       const id = this.nodeOf.get(el);
-      if (id !== undefined && GRAPHIC.has(el.localName)) chain.push(id);
+      if (id !== undefined && GRAPHIC.has(el.localName) && !el.hasAttribute("data-background")) chain.push(id);
       el = el.parentElement;
     }
     if (chain.length === 0) return null;

@@ -54,7 +54,7 @@ function requestParams(s: AiSettings, messages: Params["messages"], tools: Tools
 }
 
 /** Streams one request; retries when the SDK cannot parse a streamed tool input. */
-async function streamOnce(c: Anthropic, params: Params, signal: AbortSignal, onText: (d: string) => void): Promise<Message> {
+async function streamOnce(c: Anthropic, params: Params, signal: AbortSignal, onText: (d: string) => void, onToolDraft?: (name: string, chars: number, partial: unknown) => void): Promise<Message> {
   for (let attempt = 0; ; attempt++) {
     const stream = c.beta.messages.stream(params, { signal });
     let emitted = false;
@@ -62,6 +62,17 @@ async function streamOnce(c: Anthropic, params: Params, signal: AbortSignal, onT
       emitted = true;
       onText(d);
     });
+    if (onToolDraft) {
+      let chars = 0;
+      let block = "";
+      stream.on("inputJson", (delta, snapshot) => {
+        const current = stream.currentMessage?.content.at(-1);
+        if (!current || current.type !== "tool_use") return;
+        if (current.id !== block) [block, chars] = [current.id, 0];
+        chars += delta.length;
+        onToolDraft(current.name, chars, snapshot);
+      });
+    }
     try {
       return await stream.finalMessage();
     } catch (e) {
@@ -109,7 +120,7 @@ export const anthropicProvider: Provider = {
           fresh = false;
           text += d;
           a.onText(d);
-        });
+        }, a.onToolDraft);
         if (m.stop_reason === "refusal") {
           // A refusal can cut a tool call off mid-input: never run this turn's tools.
           const why = m.stop_details?.explanation;

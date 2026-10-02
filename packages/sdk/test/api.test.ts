@@ -391,3 +391,33 @@ describe("translateInRoot", () => {
     expect(after.y - before.y).toBeCloseTo(4);
   });
 });
+
+describe("background", () => {
+  it("sets, changes and removes a full-page background behind the drawing, each one undo step", () => {
+    const ed = createEditor({ svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="5 5 100 50">\n  <defs/>\n  <rect width="10" height="5"/>\n</svg>\n` });
+    expect(ed.doc.getBackground()).toBeNull();
+    const id = ed.doc.setBackground("#0b1020")!;
+    expect(ed.text).toContain(`<defs/>\n  <rect data-background="" x="5" y="5" width="100%" height="100%" fill="#0b1020"/>\n  <rect width="10"`);
+    expect(ed.doc.getBackground()).toEqual({ id, color: "#0b1020" });
+    expect(ed.doc.setBackground("white")).toBe(id);
+    expect(ed.doc.getBackground()!.color).toBe("white");
+    ed.doc.setBackground(null);
+    expect(ed.doc.getBackground()).toBeNull();
+    ed.undo();
+    ed.undo();
+    expect(ed.doc.getBackground()!.color).toBe("#0b1020");
+    expectError(() => ed.doc.setBackground(" "), "INVALID_ATTR");
+  });
+
+  it("exports can leave it out", async () => {
+    let seen = "";
+    const ed = createEditor({ svg: SRC, rasterize: async (svg) => ((seen = svg), new Uint8Array([1])) });
+    const id = ed.doc.setBackground("black")!;
+    await ed.exportPng();
+    expect(seen).toContain("data-background");
+    await ed.exportPng({ omit: [id] });
+    expect(seen).not.toContain("data-background");
+    expect(seen).toContain("<rect x=");
+    expect(ed.toSvg({ omit: [id] })).not.toContain("data-background");
+  });
+});
