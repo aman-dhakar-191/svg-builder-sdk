@@ -25,6 +25,27 @@
 
   onMount(() => agent.start());
 
+  // A clock for the running turn's elapsed time.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!agent.running) return;
+    const timer = setInterval(() => (now = Date.now()), 500);
+    return () => clearInterval(timer);
+  });
+
+  /** What the agent is doing right now, from its streamed progress. */
+  function liveLabel(t: Turn): string {
+    const w = t.writing;
+    if (w) {
+      const size = w.chars < 1024 ? `${w.chars} B` : `${(w.chars / 1024).toFixed(1)} KB`;
+      if (w.tool === "add_elements") return w.shapes ? `Drawing · ${w.shapes} shape${w.shapes === 1 ? "" : "s"} so far · ${size}` : `Drawing · ${size}`;
+      return `${toolLabel(w.tool)} · ${size}`;
+    }
+    const step = t.steps.at(-1);
+    if (step?.state === "running") return `${toolLabel(step.name)}…`;
+    return t.steps.length ? "Thinking about the next step" : "Planning the design";
+  }
+
   // Follow the conversation as it grows (new steps, streamed text), unless the user scrolled up.
   let pinned = true;
   $effect(() => {
@@ -97,7 +118,11 @@
       <div class="turn" in:fade={{ duration: 160 }}>
         <div class="turn-head">
           <span class="agent-dot" class:busy={t.status === "running"}>{#if t.status === "running"}<LoaderCircle size={12} class="spin" />{:else}<Sparkles size={12} />{/if}</span>
-          <span>{t.status === "running" ? "Working…" : t.status === "done" ? `${t.steps.length} step${t.steps.length === 1 ? "" : "s"} · ${seconds(t)}` : t.status === "stopped" ? "Stopped" : "Did not finish"}</span>
+          {#if t.status === "running"}
+            <span class="live-label" id="agent-live">{liveLabel(t)}</span><span class="elapsed">{Math.max(0, Math.round((now - t.startedAt) / 1000))} s</span>
+          {:else}
+          <span>{t.status === "done" ? `${t.steps.length} step${t.steps.length === 1 ? "" : "s"} · ${seconds(t)}` : t.status === "stopped" ? "Stopped" : "Did not finish"}</span>
+          {/if}
         </div>
 
         {#if t.steps.length}
@@ -175,6 +200,14 @@
   .agent-dot { width: 20px; height: 20px; border-radius: 6px; background: var(--warm); color: #fff; display: grid; place-items: center; flex: none; }
   :global(.spin) { animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .live-label {
+    background: linear-gradient(90deg, var(--muted) 0%, var(--muted) 35%, var(--fg) 50%, var(--muted) 65%, var(--muted) 100%);
+    background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: shimmer 1.8s linear infinite;
+  }
+  .elapsed { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+  @media (prefers-reduced-motion: reduce) { .live-label { animation: none; color: var(--muted); background: none; } }
   .steps { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   .steps-head { width: 100%; display: flex; align-items: center; gap: 6px; border: 0; background: var(--panel-2); padding: 7px 10px; color: var(--muted); font-size: 12px; text-align: left; }
   .steps-head:hover { color: var(--fg); }

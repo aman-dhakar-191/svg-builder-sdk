@@ -25,6 +25,8 @@ export class MockAi {
   readonly requests: Recorded[] = [];
   /** Answer Chat Completions as SSE even when stream: false (some gateways do). */
   openaiStreams = false;
+  /** Pause between tool-input chunks (ms), so a test can watch a tool call being written. */
+  slowMs = 0;
   /** Model IDs for GET .../models. */
   models = ["mock-model-a", "mock-model-b"];
   /** GET .../models requests (kept apart so `requests` stays one entry per model call). */
@@ -77,12 +79,17 @@ export class MockAi {
       res.writeHead(step.status, { "content-type": "application/json" });
       return void res.end(JSON.stringify({ type: "error", error: { type: "error", message: step.error }, message: step.error }));
     }
-    if (path.endsWith("/v1/messages")) this.anthropic(res, step);
-    else if (path.endsWith("/chat/completions")) this.openai(res, step);
+    const body = this.requests.at(-1)!.body;
+    if (path.endsWith("/v1/messages")) await this.anthropic(res, step);
+    else if (path.endsWith("/chat/completions")) await this.openai(res, step, body.stream === true);
     else res.writeHead(404).end();
   }
 
-  private anthropic(res: ServerResponse, step: { text?: string; tools?: { name: string; input: unknown }[] }): void {
+  private pause(): Promise<void> {
+    return this.slowMs ? new Promise((r) => setTimeout(r, this.slowMs)) : Promise.resolve();
+  }
+
+  private async anthropic(res: ServerResponse, step: { text?: string; tools?: { name: string; input: unknown }[] }): Promise<void> {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
     const send = (type: string, data: object) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
     const n = this.requests.length;
@@ -99,7 +106,10 @@ export class MockAi {
     for (const [k, t] of (step.tools ?? []).entries()) {
       send("content_block_start", { index, content_block: { type: "tool_use", id: `toolu_${n}_${k}`, name: t.name, input: {} } });
       const json = JSON.stringify(t.input);
-      for (let i = 0; i < json.length; i += 40) send("content_block_delta", { index, delta: { type: "input_json_delta", partial_json: json.slice(i, i + 40) } });
+      for (let i = 0; i < json.length; i += 40) {
+        send("content_block_delta", { index, delta: { type: "input_json_delta", partial_json: json.slice(i, i + 40) } });
+        await this.pause();
+      }
       send("content_block_stop", { index });
       index++;
     }
@@ -108,19 +118,22 @@ export class MockAi {
     res.end();
   }
 
-  private openai(res: ServerResponse, step: { text?: string; tools?: { name: string; input: unknown }[] }): void {
+  private async openai(res: ServerResponse, step: { text?: string; tools?: { name: string; input: unknown }[] }, asked: boolean): Promise<void> {
     const n = this.requests.length;
     const tool_calls = (step.tools ?? []).map((t, k) => ({ id: `call_${n}_${k}`, type: "function", function: { name: t.name, arguments: JSON.stringify(t.input) } }));
-    if (this.openaiStreams) {
+    if (this.openaiStreams || asked) {
       res.writeHead(200, { "content-type": "text/event-stream" });
       const chunk = (delta: object, finish: string | null = null) =>
         res.write(`data: ${JSON.stringify({ id: `chatcmpl_${n}`, object: "chat.completion.chunk", model: "mock-gpt", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
       chunk({ role: "assistant" });
       for (const part of step.text?.match(/.{1,5}/gs) ?? []) chunk({ content: part });
-      tool_calls.forEach((c, index) => {
+      for (const [index, c] of tool_calls.entries()) {
         chunk({ tool_calls: [{ index, id: c.id, type: "function", function: { name: c.function.name, arguments: "" } }] });
-        for (let i = 0; i < c.function.arguments.length; i += 30) chunk({ tool_calls: [{ index, function: { arguments: c.function.arguments.slice(i, i + 30) } }] });
-      });
+        for (let i = 0; i < c.function.arguments.length; i += 30) {
+          chunk({ tool_calls: [{ index, function: { arguments: c.function.arguments.slice(i, i + 30) } }] });
+          await this.pause();
+        }
+      }
       chunk({}, tool_calls.length ? "tool_calls" : "stop");
       return void res.end("data: [DONE]\n\n");
     }

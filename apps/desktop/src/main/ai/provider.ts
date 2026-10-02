@@ -10,6 +10,8 @@ export interface TurnArgs {
   signal: AbortSignal;
   callTool(name: string, input: unknown): Promise<AiToolOutcome>;
   onText(delta: string): void;
+  /** A tool call is being written: its name, its input so far (characters) and the complete part of it, if any. */
+  onToolDraft?(name: string, chars: number, partial: unknown): void;
   maxToolRounds: number;
 }
 

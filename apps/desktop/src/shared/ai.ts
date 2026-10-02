@@ -38,6 +38,8 @@ export interface AiTestResult {
 /** Streamed to the renderer while a turn runs. */
 export type AiEvent =
   | { turnId: string; type: "text"; delta: string }
+  /** A tool call being written: its name, its size so far, and (for add_elements) the finished part of its input. */
+  | { turnId: string; type: "draft"; tool: string; chars: number; input?: unknown }
   | { turnId: string; type: "notice"; message: string };
 
 /** The main process asks the renderer to run a tool against the document. */

@@ -97,6 +97,10 @@ export class CanvasController {
   private guides: { x?: { at: number; from: number; to: number }; y?: { at: number; from: number; to: number } } | null = null;
   /** An element pointed at elsewhere (code pane, layers), outlined without selecting it. */
   private hover: NodeId | null = null;
+  /** Shapes the agent is still writing (not in the document yet): shown faded in, never hit-tested. */
+  private draftNodes: Element[] = [];
+  /** Every draft element in input order (null: skipped), so new ones are added without redrawing the rest. */
+  private draftMade: (Element | null)[] = [];
   /** SMIL preview; between previews the drawing rests at the end of its timeline. */
   readonly playback = new Playback();
   /** Told when playback starts, stops or moves. */
@@ -417,10 +421,58 @@ export class CanvasController {
     }
   }
 
+  /**
+   * Previews an add_elements call the agent is still writing: its finished elements
+   * ("$N" parents, existing parents, or the root), with the canvas's safety rules.
+   * Replaced by the real shapes when the call runs.
+   */
+  showDraft(elements: unknown): void {
+    const svg = this.svg;
+    if (!svg || !Array.isArray(elements)) return;
+    // The last element may still be streaming: leave it out until the next one starts.
+    const done = elements.slice(0, -1);
+    if (done.length < this.draftMade.length || (this.draftNodes[0] && !this.draftNodes[0].isConnected)) this.clearDraft();
+    const made = this.draftMade;
+    for (const raw of done.slice(made.length)) {
+      const el = raw as { tag?: unknown; attributes?: unknown; text?: unknown; parent?: unknown };
+      if (typeof el?.tag !== "string" || !/^[A-Za-z][\w-]*$/.test(el.tag) || skipped(el.tag)) {
+        made.push(null);
+        continue;
+      }
+      const node = document.createElementNS("http://www.w3.org/2000/svg", el.tag);
+      const attrs: Record<string, string> = {};
+      if (el.attributes && typeof el.attributes === "object") {
+        for (const [k, v] of Object.entries(el.attributes)) if (typeof v === "string" || typeof v === "number") attrs[k] = String(v);
+      }
+      applyAttrs(node, attrs, this.ns);
+      if (typeof el.text === "string") node.textContent = el.text;
+      const ref = typeof el.parent === "string" ? el.parent : null;
+      const index = ref && /^\$(\d+)$/.test(ref) ? Number(ref.slice(1)) : -1;
+      const parent = index >= 0 ? made[index] : ref ? this.domOf.get(ref) : svg;
+      if (!(parent instanceof Element)) {
+        made.push(null);
+        continue;
+      }
+      parent.appendChild(node);
+      made.push(node);
+      if (index < 0) {
+        node.setAttribute("data-agent-draft", "");
+        this.draftNodes.push(node);
+      }
+    }
+  }
+
+  clearDraft(): void {
+    for (const n of this.draftNodes) n.remove();
+    this.draftNodes = [];
+    this.draftMade = [];
+  }
+
   /** Rebuilds the canvas from the model and keeps the selection where possible. */
   render(): void {
     this.changed.clear();
     this.structural = false;
+    this.clearDraft();
     const { svg, nodeOf, domOf, ns } = renderTree(this.editor.doc.getTree());
     this.svg = svg;
     this.nodeOf = nodeOf;

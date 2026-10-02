@@ -1,12 +1,15 @@
 import { SYSTEM_PROMPT, toolsFor } from "@svg-editor/ai-tools/definitions";
 import type { AiSettings } from "../../shared/ai.js";
+import { completedPrefix } from "./partial.js";
 import { NO_VISION_MESSAGE, OLD_SNAPSHOT_TEXT, paragraph, PING_TOOL, ProviderError, TEST_IMAGE_PNG, type Provider, type TurnArgs, type TurnResult } from "./provider.js";
 
 /**
  * OpenAI-compatible Chat Completions (OpenAI, OpenRouter, Ollama, LM Studio,
  * vLLM, ...). Plain fetch: every such server speaks the same wire format, and
- * no vendor SDK is needed for it. Non-streaming: tool loops dominate a turn,
- * and not every compatible server streams tool calls correctly.
+ * no vendor SDK is needed for it. Turns stream (text and tool-call progress
+ * show live); the reply is then assembled from the whole stream, the same way
+ * as for servers that stream unasked. A server that answers with plain JSON
+ * instead is read as before.
  */
 
 interface ToolCall {
@@ -36,9 +39,15 @@ const asFunction = (t: { name: string; description: string; input_schema: unknow
   function: { name: t.name, description: t.description, parameters: t.input_schema },
 });
 
-async function complete(s: AiSettings, apiKey: string | null, messages: ChatMessage[], tools: FunctionTool[], signal: AbortSignal, maxTokens = MAX_TOKENS): Promise<ChatResponse> {
+/** Live progress of a streamed reply. */
+interface Live {
+  onText(delta: string): void;
+  onToolDraft?(name: string, chars: number, partial: unknown): void;
+}
+
+async function complete(s: AiSettings, apiKey: string | null, messages: ChatMessage[], tools: FunctionTool[], signal: AbortSignal, maxTokens = MAX_TOKENS, live?: Live): Promise<ChatResponse> {
   const base = (s.baseUrl.trim() || DEFAULT_BASE).replace(/\/+$/, "");
-  const body: Record<string, unknown> = { model: s.model, messages, tools, tool_choice: "auto", max_tokens: maxTokens, stream: false };
+  const body: Record<string, unknown> = { model: s.model, messages, tools, tool_choice: "auto", max_tokens: maxTokens, stream: !!live };
   if (s.effort !== "default") body.reasoning_effort = s.effort;
   let res: Response;
   try {
@@ -52,7 +61,7 @@ async function complete(s: AiSettings, apiKey: string | null, messages: ChatMess
     if (signal.aborted) throw e;
     throw new ProviderError(`Could not reach ${base}: ${e instanceof Error ? e.message : String(e)}. Check the base URL and your connection.`);
   }
-  const raw = await res.text();
+  const raw = live && res.ok && res.body ? await readLive(res.body, live) : await res.text();
   let json: ChatResponse = {};
   try {
     json = JSON.parse(raw) as ChatResponse;
@@ -81,13 +90,24 @@ export const openaiProvider: Provider = {
     let text = "";
     let rounds = 0;
     for (;;) {
-      const res = await complete(a.settings, a.apiKey, history, tools, a.signal);
+      let streamed = "";
+      const live: Live = {
+        onText: (d) => {
+          if (!streamed) d = paragraph(text, d);
+          streamed += d;
+          a.onText(d);
+        },
+        ...(a.onToolDraft ? { onToolDraft: a.onToolDraft } : {}),
+      };
+      const res = await complete(a.settings, a.apiKey, history, tools, a.signal, MAX_TOKENS, live);
       const choice = res.choices![0]!;
       const msg = choice.message!;
+      text += streamed;
       if (msg.refusal || choice.finish_reason === "content_filter") {
         return { status: "refused", text, message: msg.refusal ? `The model declined: ${msg.refusal}` : "The model declined this request." };
       }
-      if (msg.content) {
+      // A server that answered with plain JSON streamed nothing: show its text now.
+      if (msg.content && !streamed) {
         const d = paragraph(text, msg.content);
         text += d;
         a.onText(d);
@@ -183,6 +203,46 @@ interface Chunk {
 }
 
 /** Builds a Chat Completions response from a streamed (SSE) body. */
+/** Reads a streamed reply as it arrives, reporting text and tool-call progress; returns the raw text. */
+async function readLive(body: ReadableStream<Uint8Array>, live: Live): Promise<string> {
+  const decoder = new TextDecoder();
+  let raw = "";
+  let line = "";
+  const args: { name: string; text: string }[] = [];
+  const reader = body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    raw += chunk;
+    line += chunk;
+    const lines = line.split(/\r?\n/);
+    line = lines.pop() ?? "";
+    for (const l of lines) {
+      const m = /^data:\s?(.*)$/.exec(l);
+      if (!m || !m[1]!.trim() || m[1]!.trim() === "[DONE]") continue;
+      let c: Chunk;
+      try {
+        c = JSON.parse(m[1]!) as Chunk;
+      } catch {
+        continue;
+      }
+      const d = c.choices?.[0]?.delta;
+      if (!d) continue;
+      if (d.content) live.onText(d.content);
+      for (const tc of d.tool_calls ?? []) {
+        const a = (args[tc.index ?? args.length] ??= { name: "", text: "" });
+        if (tc.function?.name) a.name += tc.function.name;
+        if (tc.function?.arguments) {
+          a.text += tc.function.arguments;
+          live.onToolDraft?.(a.name, a.text.length, completedPrefix(a.text));
+        }
+      }
+    }
+  }
+  return raw + decoder.decode();
+}
+
 export function fromStream(raw: string): ChatResponse {
   let model: string | undefined;
   let content = "";
