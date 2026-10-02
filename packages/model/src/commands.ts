@@ -1,5 +1,7 @@
 import { ANIMATION_TAGS, buildMotion, MotionError, type MotionPreset } from "./animation.js";
 import { CommandFailure, fail } from "./errors.js";
+import { boxCenter, buildTrack, isTransformKey, KEY_PROPERTIES, KeyframeError, normalizeKeys, readTracks, trackCenter, type KeyProperty } from "./keyframes.js";
+import { MOTION_EASINGS, type MotionEasing } from "./animation.js";
 import { booleanPaths, countNodes, simplifyPathData, type BooleanOperation } from "./boolean.js";
 import {
   applyToPoint,
@@ -718,6 +720,72 @@ function removeAnimations(ctx: CommandContext, cmd: Record<string, unknown>): Co
   return { id, removed: removeMotion(ctx, node, cmd.preset as string | undefined) };
 }
 
+/**
+ * Replaces one property's keyframe track on an element (empty keys remove it). Transform
+ * tracks are kept in one order (translate, rotate, scale) so they compose predictably.
+ */
+function keyframes(ctx: CommandContext, cmd: Record<string, unknown>): CommandResultMap["keyframes"] {
+  const id = requireString(cmd.id, "id", "keyframes");
+  const node = getElement(ctx, id, "keyframes");
+  notRoot(ctx, id, "keyframes");
+  if (ANIMATION_TAGS.has(node.tag)) fail("NOT_ANIMATABLE", `keyframes: "${id}" is itself an <${node.tag}>.`, "Animate the element it belongs to (its parent).");
+  const property = cmd.property as KeyProperty;
+  if (!(KEY_PROPERTIES as readonly string[]).includes(property)) {
+    fail("INVALID_COMMAND", `keyframes: "property" must be one of ${KEY_PROPERTIES.join(", ")}, got ${JSON.stringify(cmd.property)}.`, 'Example: { op: "keyframes", id: "n_3", property: "opacity", keys: [{ time: 0, value: 0 }, { time: 1, value: 1 }] }.');
+  }
+  if (cmd.easing !== undefined && !(MOTION_EASINGS as readonly string[]).includes(cmd.easing as string)) {
+    fail("INVALID_COMMAND", `keyframes: "easing" must be one of ${MOTION_EASINGS.join(", ")}.`, 'Omit it for "easeInOut".');
+  }
+  let keys;
+  try {
+    keys = normalizeKeys(property, cmd.keys);
+  } catch (e) {
+    if (e instanceof KeyframeError) fail(e.code, `keyframes: ${e.message}`, e.hint);
+    throw e;
+  }
+  const children = () => ctx.get(id)!.children.map((c) => ctx.get(c)!);
+  const existing = readTracks(children());
+  const old = existing.find((t) => t.property === property);
+  const easing = (cmd.easing as MotionEasing | undefined) ?? old?.easing ?? "easeInOut";
+  // Rotation and scale keep turning about the centre they started with.
+  let center = trackCenter(children());
+  if (!center && (property === "rotate" || property === "scale") && keys.length) {
+    const b = cmd.box;
+    if (isRecord(b) && ["x", "y", "width", "height"].every((k) => typeof b[k] === "number" && Number.isFinite(b[k]))) {
+      center = boxCenter({ x: b.x as number, y: b.y as number, width: b.width as number, height: b.height as number });
+    } else {
+      const r = ctx.bbox(id);
+      if (r.ok) center = boxCenter(r.bbox);
+    }
+  }
+  let built: { tag: string; attrs: Record<string, string> }[] = [];
+  if (keys.length) {
+    try {
+      built = buildTrack(property, keys, easing, center);
+    } catch (e) {
+      if (e instanceof KeyframeError) fail(e.code, `keyframes: ${e.message}`, e.hint);
+      throw e;
+    }
+  }
+  // Take out this track, and for transforms all transform tracks (re-added in order).
+  const others = isTransformKey(property) ? existing.filter((t) => t.property !== property && isTransformKey(t.property)) : [];
+  const saved = new Map(others.map((t) => [t.property, t.ids.map((i) => ({ tag: ctx.get(i)!.tag, attrs: { ...ctx.get(i)!.attrs } }))]));
+  // Scale's origin elements sit around it: keep them in their order.
+  for (const t of others) if (t.property === "scale") saved.set("scale", children().filter((c) => t.ids.includes(c.id)).map((c) => ({ tag: c.tag, attrs: { ...c.attrs } })));
+  for (const t of [...(old ? [old] : []), ...others]) for (const i of t.ids) if (ctx.get(i)) removeNode(ctx, i);
+  const order: KeyProperty[] = isTransformKey(property) ? ["translate", "rotate", "scale"] : [property];
+  const ids: NodeId[] = [];
+  for (const p of order) {
+    const els = p === property ? built : (saved.get(p) ?? []);
+    for (const el of els) {
+      const cid = ctx.newId();
+      ctx.apply({ kind: "insert", parent: id, index: ctx.get(id)!.children.length, nodes: [{ id: cid, tag: el.tag, attrs: el.attrs, children: [], parent: id }] });
+      if (p === property) ids.push(cid);
+    }
+  }
+  return { id, property, keys: keys.length, ids };
+}
+
 const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown>) => unknown> = {
   add,
   set,
@@ -736,6 +804,7 @@ const HANDLERS: Record<string, (ctx: CommandContext, cmd: Record<string, unknown
   simplify,
   animate,
   removeAnimations,
+  keyframes,
 };
 
 /** Runs one command. Throws CommandFailure; the caller rolls back partial changes. */

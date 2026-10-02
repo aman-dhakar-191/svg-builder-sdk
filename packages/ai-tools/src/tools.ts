@@ -204,11 +204,36 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "set_keyframes",
+    description:
+      'Keyframe animation, for motion the presets cannot do: sets one property of an element at points in time (seconds from the start); in between it is interpolated with the easing. Properties and values: "translate" [dx, dy] offset in the element\'s own units, "rotate" degrees and "scale" a number or [sx, sy] (both about the element\'s centre), "opacity" 0..1, "fill" / "stroke" colours (they change at each key). Replaces that property\'s keys on the element; keys: [] removes them. Before the first key the first value holds. Combine several properties for one movement (e.g. translate and opacity with the same times).',
+    input_schema: {
+      type: "object",
+      properties: {
+        id,
+        property: { type: "string", enum: ["translate", "rotate", "scale", "opacity", "fill", "stroke"] },
+        keys: {
+          type: "array",
+          maxItems: 100,
+          items: {
+            type: "object",
+            properties: { time: { type: "number", description: "Seconds from the start." }, value: { anyOf: [{ type: "number" }, { type: "string" }, vec2] } },
+            required: ["time", "value"],
+            additionalProperties: false,
+          },
+        },
+        easing: { type: "string", enum: ["linear", "ease", "easeIn", "easeOut", "easeInOut"], description: "Default easeInOut." },
+      },
+      required: ["id", "property", "keys"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "remove_animations",
     description: "Removes animations from elements: only those of one preset, or (without preset) all of them, hand-written ones included.",
     input_schema: {
       type: "object",
-      properties: { ids: ids(), preset: { type: "string", enum: ["fadeIn", "slideIn", "popIn", "drawOn", "spin", "pulse", "float", "wiggle"] } },
+      properties: { ids: ids(), preset: { type: "string", enum: ["fadeIn", "slideIn", "popIn", "drawOn", "spin", "pulse", "float", "wiggle", "keys"], description: '"keys" removes keyframes.' } },
       required: ["ids"],
       additionalProperties: false,
     },

@@ -421,3 +421,34 @@ describe("background", () => {
     expect(ed.toSvg({ omit: [id] })).not.toContain("data-background");
   });
 });
+
+describe("keyframes", () => {
+  it("sets, moves and removes single keys; reads values at any time", () => {
+    const ed = createEditor({ svg: SRC });
+    const r = ed.doc.query({ tag: "rect" })[0]!;
+    expect(ed.doc.keyValueAt(r, "translate", 1)).toEqual([0, 0]);
+    expect(ed.doc.keyValueAt(r, "opacity", 1)).toBe(1);
+    ed.doc.setKeyframe(r, "translate", 0, [0, 0]);
+    ed.doc.setKeyframe(r, "translate", 2, [40, 10]);
+    expect(ed.doc.getKeyframes(r)).toMatchObject([{ property: "translate", keys: [{ time: 0, value: [0, 0] }, { time: 2, value: [40, 10] }] }]);
+    expect(ed.doc.keyValueAt(r, "translate", 1)).toEqual([20, 5]); // eased in and out: symmetric at the middle
+    ed.doc.moveKeyframe(r, "translate", 2, 1);
+    expect(ed.doc.getKeyframes(r)[0]!.keys.map((k) => k.time)).toEqual([0, 1]);
+    expect(ed.doc.timelineDuration()).toBe(1);
+    ed.doc.removeKeyframe(r, "translate", 0);
+    ed.doc.removeKeyframe(r, "translate", 1);
+    expect(ed.doc.getKeyframes(r)).toEqual([]);
+    expectError(() => ed.doc.moveKeyframe(r, "translate", 5, 1), "NOT_FOUND");
+    // Each edit was one undo step.
+    ed.undo();
+    expect(ed.doc.getKeyframes(r)[0]!.keys).toHaveLength(1);
+  });
+
+  it("text rotates about its measured centre", () => {
+    const ed = createEditor();
+    const t = ed.doc.addText("Mizu", { x: 0, y: 10 });
+    ed.setBridges({ measure: (id) => (id === t ? { x: 0, y: 0, width: 40, height: 12 } : null) });
+    ed.doc.setKeyframes(t, "rotate", [{ time: 0, value: 0 }, { time: 1, value: 10 }]);
+    expect(ed.doc.getNode(ed.doc.getNode(t).children[1]!).attrs.values).toBe("0 20 6;10 20 6");
+  });
+});

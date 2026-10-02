@@ -1,4 +1,4 @@
-import { ANIMATION_TAGS, SvgEditorError, TEXT_TAG, type AnimateOptions, type BBox, type DocumentApi, type Editor, type MotionPreset, type NodeId, type PathMove, type PathNodeOp, type TreeNode } from "@svg-editor/sdk";
+import { ANIMATION_TAGS, SvgEditorError, TEXT_TAG, type AnimateOptions, type BBox, type Keyframe, type KeyProperty, type MotionEasing, type DocumentApi, type Editor, type MotionPreset, type NodeId, type PathMove, type PathNodeOp, type TreeNode } from "@svg-editor/sdk";
 import { TOOLS } from "./tools.js";
 import { validate } from "./validate.js";
 
@@ -92,7 +92,7 @@ const HANDLERS: Record<string, Handler> = {
       for (const c of n.children) {
         if (c.tag === TEXT_TAG) text += c.text ?? "";
         // Preset animations are listed by name; hand-written ones stay in the outline.
-        else if (ANIMATION_TAGS.has(c.tag) && c.attrs["data-motion"]) motion.add(c.attrs["data-motion"]);
+        else if (ANIMATION_TAGS.has(c.tag) && c.attrs["data-motion"]) motion.add(c.attrs["data-motion"] === "keys" ? `keys:${c.attrs["data-key"]}` : c.attrs["data-motion"]);
         else if (count < MAX_OUTLINE_NODES) kids.push(outline(c));
         else truncated = true;
       }
@@ -238,6 +238,11 @@ const HANDLERS: Record<string, Handler> = {
     const { ids: targets, preset, ...options } = input;
     const created = t.doc.animate(targets, preset, options);
     return { animated: targets, preset, animation_elements: created.length, animation_seconds: t.doc.timelineDuration() };
+  },
+
+  set_keyframes: (t, input: { id: NodeId; property: KeyProperty; keys: Keyframe[]; easing?: MotionEasing }) => {
+    t.doc.setKeyframes(input.id, input.property, input.keys, input.easing ? { easing: input.easing } : {});
+    return { id: input.id, property: input.property, keys: input.keys.length, animation_seconds: t.doc.timelineDuration() };
   },
 
   remove_animations: (t, input: { ids: NodeId[]; preset?: string }) => ({ removed: t.doc.removeAnimations(input.ids, input.preset) }),

@@ -22,6 +22,7 @@ export {
 } from "./animation.js";
 export { CommandFailure } from "./errors.js";
 export { pathBBox } from "./path.js";
+export { KEY_PROPERTIES, readTracks, valueAt, type Keyframe, type KeyProperty, type KeyTrack, type KeyValue } from "./keyframes.js";
 export { editPathNode, formatPath, movePathPoints, nearestOnPath, oppositeHandle, parsePath, pointOnSegment, segmentStart, type PathMove, type PathNodeOp, type PathPoint, type PathSegment } from "./path.js";
 export type {
   BBox,
