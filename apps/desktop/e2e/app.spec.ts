@@ -14,7 +14,8 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   // destroy() skips the "save changes?" prompt of edited documents.
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
+  // Closing the last window quits the app, which can exit before this call returns.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy())).catch(() => {});
   await app.close();
 });
 
@@ -146,6 +147,8 @@ test("reduced motion: dialogs and panels appear without animating", async () => 
 });
 
 test("pointing at markup in the code pane or at a layer outlines that element on the canvas", async () => {
+  // The code font can still be loading: measure the text where it will stay.
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
   const at = await page.evaluate(() => {
     const { view } = (window as unknown as { editor: { view: import("@codemirror/view").EditorView } }).editor;
     const c = view.coordsAtPos(view.state.doc.toString().indexOf("<circle") + 3)!;

@@ -10,6 +10,7 @@ test("the packaged app starts, renders and has its preload bridge", async () => 
   await expect(page.locator(".layer-row")).toHaveCount(3);
   expect(await page.evaluate(() => typeof (window as unknown as { desktop?: { openFile?: unknown } }).desktop?.openFile)).toBe("function");
   expect(await app.evaluate(({ app }) => app.getName())).toBe("Curvant");
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy()));
+  // Closing the last window quits the app, which can exit before this call returns.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.destroy())).catch(() => {});
   await app.close();
 });
