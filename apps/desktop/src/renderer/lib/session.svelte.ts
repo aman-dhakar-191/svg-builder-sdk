@@ -5,7 +5,7 @@ import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { createEditor, EMPTY_SVG, PRESET_INFO, SvgEditorError, type AbortSignalLike, type AnimateOptions, type Editor, type LockInfo, type MotionPreset, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
+import { createEditor, EMPTY_SVG, invert, parseTransform, PRESET_INFO, type Command, type KeyProperty, type KeyValue, SvgEditorError, type AbortSignalLike, type AnimateOptions, type Editor, type LockInfo, type MotionPreset, type NodeId, type Rasterizer, type TextChangeEvent } from "@svg-editor/sdk";
 import type { DesktopApi, MenuAction, SvgExportStyle, UpdateState } from "../../shared/api.js";
 import { CanvasController, type Tool } from "../canvas.js";
 import { selectionHighlight, setHighlights } from "../highlight.js";
@@ -127,6 +127,13 @@ export class Session {
   canRedo = $state(false);
   /** Animation preview: its length (0 = the drawing has none), whether it plays, where it is (null = at rest). */
   motionEnd = $state(0);
+  /** The keyframe timeline: open, its playhead (seconds), record mode, and its visible length. */
+  timelineOpen = $state(false);
+  playhead = $state(0);
+  recording = $state(false);
+  timelineLength = $state(3);
+  /** The selected keyframe in the timeline (Delete removes it). */
+  activeKey: { id: NodeId; property: KeyProperty; time: number } | null = $state(null);
   /** Exports include the document background (Export dialog checkbox). */
   exportBackground = $state(true);
   playing = $state(false);
@@ -226,10 +233,14 @@ export class Session {
     });
     this.canvas.snapper = this.viewport;
     this.canvas.onActiveNode = (n) => (this.activeNode = n);
+    this.canvas.recorder = (commands) => this.recordTransforms(commands);
     this.canvas.onPlayback = (p) => {
       this.motionEnd = this.canvas?.playback.end ?? 0;
       this.playing = p.playing;
       this.playTime = p.time;
+      // The timeline's playhead follows playback and stays where it stopped.
+      const hold = this.canvas?.playback.hold;
+      if (this.timelineOpen && !p.playing && hold !== null && hold !== undefined) this.playhead = Math.round(hold * 100) / 100;
     };
     this.canvas.onNodeError = (message) => this.showStatus(message, true);
     this.canvas.onNodeEdit = (on) => {
@@ -714,6 +725,96 @@ export class Session {
     this.canvas?.playback.rest();
   }
 
+  // ------------------------------------------------------------ keyframes
+
+  toggleTimeline(open = !this.timelineOpen): void {
+    this.timelineOpen = open;
+    if (!open) this.recording = false;
+    this.canvas?.playback.setHold(open ? this.playhead : null);
+  }
+
+  /** Moves the playhead: the canvas shows (and edits) the drawing at that time. */
+  setPlayhead(t: number): void {
+    this.playhead = Math.max(0, Math.round(t * 100) / 100);
+    if (this.timelineOpen) this.canvas?.playback.setHold(this.playhead);
+  }
+
+  /** Record a property at the playhead: the first key of a track also fixes its start (at 0 s). */
+  private recordKey(id: NodeId, property: KeyProperty, value: KeyValue): void {
+    const doc = this.editor.doc;
+    const t = this.playhead;
+    const track = doc.getKeyframes(id).find((k) => k.property === property);
+    if (!track && t > 0) doc.setKeyframe(id, property, 0, doc.keyValueAt(id, property, 0));
+    doc.setKeyframe(id, property, t, value);
+  }
+
+  /** Record mode: canvas moves, rotations and resizes become keyframes at the playhead. */
+  private recordTransforms(commands: Command[]): boolean {
+    if (!this.recording || !this.timelineOpen) return false;
+    const doc = this.editor.doc;
+    const t = this.playhead;
+    try {
+      this.editor.batch(() => {
+        for (const c of commands) {
+          if (c.op !== "transform") continue;
+          if (c.translate) {
+            // The track moves the shape in its own coordinates (inside its transform).
+            const m = parseTransform(doc.getNode(c.id).attrs.transform) ?? [1, 0, 0, 1, 0, 0];
+            const inv = invert([m[0], m[1], m[2], m[3], 0, 0]) ?? [1, 0, 0, 1, 0, 0];
+            const [dx, dy] = c.translate;
+            const local: [number, number] = [inv[0] * dx + inv[2] * dy, inv[1] * dx + inv[3] * dy];
+            const [x, y] = doc.keyValueAt(c.id, "translate", t) as [number, number];
+            this.recordKey(c.id, "translate", [round2(x + local[0]), round2(y + local[1])]);
+          }
+          if (c.rotate !== undefined) this.recordKey(c.id, "rotate", round2((doc.keyValueAt(c.id, "rotate", t) as number) + c.rotate));
+          if (c.scale) {
+            const [sx, sy] = doc.keyValueAt(c.id, "scale", t) as [number, number];
+            this.recordKey(c.id, "scale", [round2(sx * c.scale[0]) || 0.01, round2(sy * c.scale[1]) || 0.01]);
+          }
+        }
+      });
+    } catch (e) {
+      this.showStatus(e instanceof Error ? e.message : String(e), true);
+      return true;
+    }
+    this.showStatus(`Keyframe at ${fmtSeconds(t)}. Ctrl+Z to undo.`, false);
+    return true;
+  }
+
+  /** Record mode: opacity, fill and stroke from the Design panel become keyframes. False when not recording. */
+  recordAttrs(id: NodeId, attrs: Record<string, string | null>): boolean {
+    if (!this.recording || !this.timelineOpen) return false;
+    const keys = Object.entries(attrs).filter(([k]) => k === "opacity" || k === "fill" || k === "stroke");
+    if (keys.length === 0) return false;
+    try {
+      this.editor.batch(() => {
+        for (const [k, v] of keys) {
+          if (v === null) continue;
+          this.recordKey(id, k as KeyProperty, k === "opacity" ? Math.min(1, Math.max(0, Number(v))) : v);
+        }
+      });
+      this.showStatus(`Keyframe at ${fmtSeconds(this.playhead)}. Ctrl+Z to undo.`, false);
+    } catch (e) {
+      this.showStatus(e instanceof Error ? e.message : String(e), true);
+    }
+    return true;
+  }
+
+  /** Removes the keyframe selected in the timeline. */
+  deleteActiveKey(): boolean {
+    const k = this.activeKey;
+    if (!k) return false;
+    this.guard(() => {
+      try {
+        this.editor.doc.removeKeyframe(k.id, k.property, k.time);
+      } catch (e) {
+        this.showStatus(e instanceof Error ? e.message : String(e), true);
+      }
+    });
+    this.activeKey = null;
+    return true;
+  }
+
   // ------------------------------------------------------------ view
 
   setMode(mode: Mode): void {
@@ -797,6 +898,7 @@ export class Session {
     toggleSnap: () => this.viewport?.toggleSnap(),
     toggleSnapShapes: () => this.toggleSnapShapes(),
     playAnimation: () => this.togglePlay(),
+    toggleTimeline: () => this.toggleTimeline(),
     checkUpdates: () => this.checkForUpdates(),
     undo: () => void this.undo(),
     redo: () => void this.redo(),
@@ -845,6 +947,9 @@ function openOrEmpty(text: string): Editor {
     return createEditor({ svg: EMPTY_SVG, rasterize });
   }
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const fmtSeconds = (t: number) => `${t.toFixed(2)} s`;
 
 function sleep(ms: number, signal: AbortSignalLike): Promise<void> {
   return new Promise((resolve, reject) => {

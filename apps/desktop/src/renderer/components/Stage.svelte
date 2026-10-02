@@ -13,6 +13,7 @@
   import { formatKeys } from "../lib/commands.js";
   import { session } from "../lib/session.svelte.js";
   import Tip from "./Tip.svelte";
+  import Timeline from "./Timeline.svelte";
 
   let host: HTMLElement;
   let overlay: SVGSVGElement;
@@ -23,7 +24,7 @@
   const fmt = (t: number) => `${t.toFixed(t < 10 ? 2 : 1)} s`;
 </script>
 
-<section class="stage" class:locked aria-label="Canvas">
+<section class="stage" class:locked class:tl={session.timelineOpen && session.mode === "editor"} aria-label="Canvas">
   <div class="surface" inert={locked}>
     <!-- The canvas takes keyboard input (tool keys, arrows to nudge, Delete, Esc), so it must be focusable. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -53,7 +54,9 @@
     </Tip>
   </div>
 
-  {#if session.motionEnd > 0}
+  {#if session.timelineOpen && session.mode === "editor"}
+    <Timeline />
+  {:else if session.motionEnd > 0}
     <div class="float playbar" role="toolbar" aria-label="Animation" transition:fly={{ y: 8, duration: 160 }}>
       <button class="icon-btn" id="play" aria-label={session.playing ? "Pause" : "Play"} title="{session.playing ? 'Pause' : 'Play'} the animation" onclick={() => session.togglePlay()}>
         {#if session.playing}<Pause size={16} />{:else}<Play size={16} />{/if}
@@ -62,6 +65,7 @@
         value={session.playTime ?? session.motionEnd}
         oninput={(e) => session.seekMotion(Number((e.target as HTMLInputElement).value))} />
       <span id="play-time" class="time">{fmt(session.playTime ?? session.motionEnd)} / {fmt(session.motionEnd)}</span>
+      <button class="btn small ghost" id="open-timeline" title="Keyframes: open the timeline" onclick={() => session.toggleTimeline(true)}>Timeline</button>
       {#if session.playTime !== null && !session.playing}
         <button class="btn small ghost" id="play-done" title="Back to editing (the drawing at the end of its motion)" onclick={() => session.restMotion()}>Done</button>
       {/if}
@@ -85,8 +89,10 @@
 </section>
 
 <style>
-  .stage { grid-area: canvas; position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--desk); view-transition-name: stage; }
-  .surface { position: absolute; inset: 0; }
+  .stage { --timeline-h: 0px; grid-area: canvas; position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--desk); view-transition-name: stage; }
+  .surface { position: absolute; inset: 0 0 var(--timeline-h) 0; }
+  .stage.tl { --timeline-h: 210px; }
+  .stage.tl .view, .stage.tl .zoom { bottom: calc(var(--timeline-h) + 12px); }
   .float { position: absolute; display: flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; box-shadow: var(--shadow); z-index: 3; }
   .view { left: 12px; bottom: 12px; }
   .zoom { right: 12px; bottom: 12px; }

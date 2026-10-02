@@ -77,6 +77,7 @@
   let newValue = $state("");
 
   function set(id: NodeId, attrs: Record<string, string | null>): void {
+    if (session.recordAttrs(id, attrs)) return; // Record (timeline): a keyframe instead
     session.guard(() => {
       const r = session.editor.execute({ op: "set", id, attrs });
       if (!r.ok) session.showStatus(`${r.error.message} ${r.error.hint}`, true);

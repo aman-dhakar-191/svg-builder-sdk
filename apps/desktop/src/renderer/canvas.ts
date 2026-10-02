@@ -409,7 +409,7 @@ export class CanvasController {
       const b = el.getBBox();
       const toRoot = invert(mat(rootCtm));
       // During a preview the DOM's transforms are animated: measure the resting drawing through the model instead.
-      const previewing = this.playback.playing || this.playback.time !== null;
+      const previewing = this.playback.playing || this.playback.time !== null || this.playback.hold !== null;
       const r = boundsOf(corners({ x: b.x, y: b.y, width: b.width, height: b.height }).map((p) => {
         if (!previewing) return apply(toRoot, apply(mat(ctm), p));
         const [x, y] = this.editor.doc.pointToRoot(id, [p.x, p.y]);
@@ -506,8 +506,15 @@ export class CanvasController {
 
   // ------------------------------------------------------------ commands
 
+  /**
+   * Record mode (timeline): takes the transform commands of a gesture and turns them
+   * into keyframes at the playhead instead. True when it handled them.
+   */
+  recorder: ((commands: Command[]) => boolean) | null = null;
+
   private run(commands: Command[]): void {
     if (commands.length === 0) return;
+    if (this.recorder && commands.every((c) => c.op === "transform") && this.recorder(commands)) return;
     const r = this.editor.execute(commands.length === 1 ? commands[0]! : { op: "batch", commands });
     if (!r.ok) console.warn("canvas command failed", r.error);
   }

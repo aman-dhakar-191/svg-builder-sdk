@@ -8,6 +8,8 @@ export type { PathMove, PathNodeOp, PathPoint, PathSegment } from "@svg-editor/m
 /** Motion presets and their defaults. */
 export { ANIMATION_TAGS, KEY_PROPERTIES, MOTION_EASINGS, MOTION_PRESETS, parseClock, PRESET_INFO, valueAt } from "@svg-editor/model";
 export type { Keyframe, KeyProperty, KeyTrack, KeyValue } from "@svg-editor/model";
+/** Pure transform helpers: parse a transform attribute to a matrix [a, b, c, d, e, f], invert it, map points. */
+export { applyToPoint, invert, parseTransform, type Matrix } from "@svg-editor/model";
 export type { AnimationInfo, MotionEasing, MotionOptions, MotionPreset, MotionTrigger, PresetInfo } from "@svg-editor/model";
 export type { Mutation } from "@svg-editor/model";
 export type { BBox, Command, CommandError, CommandResult, NodeData, NodeId, Query, TreeNode, Vec2 } from "@svg-editor/model";
