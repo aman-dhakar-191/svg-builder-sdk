@@ -311,6 +311,23 @@ test("OpenAI-compatible turns stream; a server that answers with plain JSON stil
   expect(mock.requests[0]!.body.stream).toBe(true);
 });
 
+test("the chat's Stop keeps what the agent drew so far; one Ctrl+Z removes it", async () => {
+  await configure("anthropic", "claude-test-model");
+  const hold = gate();
+  mock.script([{ tools: [{ name: "add_elements", input: HOUSE }] }, { text: "never sent" }], [undefined, hold.promise]);
+  const original = await code();
+  await ask("draw a house");
+  await expect.poll(code).toContain('id="door"');
+  await page.locator("#chat-stop").click();
+  await expect(page.locator("#lock-banner")).toBeHidden();
+  expect(await code()).toContain('id="door"');
+  await page.locator('[data-mode-switch="editor"]').click();
+  await page.locator("#canvas").focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(code).toBe(original);
+  hold.open();
+});
+
 /** Shapes the agent is still writing: drawn on the canvas before the call runs, not in the document. */
 const drafts = () => page.locator("#canvas [data-agent-draft]").count();
 

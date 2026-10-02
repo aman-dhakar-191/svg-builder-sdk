@@ -298,3 +298,26 @@ describe("keyframe tool", () => {
     expect(editor.text).toBe(SRC);
   });
 });
+
+describe("working with the model's own ids, and the page size", () => {
+  it("parent and ids may be the id attribute the model gave an element", async () => {
+    await ok("add_elements", { elements: [{ tag: "defs", attributes: { id: "logo_defs" } }, { tag: "g", attributes: { id: "mark" } }] });
+    const r = await ok("add_elements", { elements: [{ tag: "linearGradient", parent: "logo_defs", attributes: { id: "grad" } }, { tag: "circle", parent: "#mark", attributes: { r: 5 } }] });
+    const [grad, circle] = r.ids as string[];
+    expect(editor.doc.getNode(editor.doc.getNode(grad!).parent!).attrs.id).toBe("logo_defs");
+    expect(editor.doc.getNode(editor.doc.getNode(circle!).parent!).attrs.id).toBe("mark");
+    await ok("set_attributes", { id: "mark", attributes: { opacity: 0.5 } });
+    expect(editor.doc.query({ attr: { id: "mark", opacity: "0.5" } })).toHaveLength(1);
+    await ok("delete_elements", { ids: ["#mark"] });
+    expect(editor.doc.query({ attr: { id: "mark" } })).toHaveLength(0);
+    // Unknown names still fail with the usual error.
+    expect((await err("set_attributes", { id: "nope", attributes: { x: 1 } })).code).toBe("NOT_FOUND");
+  });
+
+  it("set_canvas resizes the page; get_document names the root", async () => {
+    expect(await ok("set_canvas", { width: 1200, height: 800 })).toEqual({ width: 1200, height: 800, viewBox: "0 0 1200 800" });
+    const d = await ok("get_document");
+    expect(d).toMatchObject({ root: editor.doc.root, viewBox: "0 0 1200 800", size: { width: 1200, height: 800 } });
+    expect((await err("set_canvas", { width: 2, height: 800 })).code).toBe("INVALID_INPUT");
+  });
+});

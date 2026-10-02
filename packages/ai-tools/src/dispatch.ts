@@ -41,7 +41,7 @@ export async function dispatch(target: ToolTarget, name: string, input: unknown)
   const problem = validate(input ?? {}, tool.input_schema);
   if (problem) return fail("INVALID_INPUT", problem, `Call ${name} again with input that matches its schema.`);
   try {
-    const value = await HANDLERS[name]!(target, (input ?? {}) as never);
+    const value = await HANDLERS[name]!(target, withNodeIds(target.doc, input ?? {}) as never);
     return value instanceof WithImage ? { ok: true, result: value.result, image: value.image } : { ok: true, result: value };
   } catch (e) {
     if (e instanceof SvgEditorError) {
@@ -51,6 +51,25 @@ export async function dispatch(target: ToolTarget, name: string, input: unknown)
     if (e instanceof ToolError) return fail(e.code, e.message, e.hint);
     return fail("INTERNAL", e instanceof Error ? e.message : String(e), "This is a bug in the editor; try a different approach.");
   }
+}
+
+/**
+ * Element references may name an element by the id attribute the model gave it
+ * ("logo" or "#logo") instead of its node ID ("n_12"): models do that often, and it
+ * is unambiguous when one element has that id. Node IDs and "$N" pass through.
+ */
+function withNodeIds(doc: DocumentApi, input: unknown): unknown {
+  const resolve = (ref: unknown): unknown => {
+    if (typeof ref !== "string" || /^\$\d+$/.test(ref) || doc.has(ref)) return ref;
+    const found = doc.query({ attr: { id: ref.replace(/^#/, "") } });
+    return found.length === 1 ? found[0] : ref;
+  };
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+  for (const k of ["id", "parent"]) if (k in out) out[k] = resolve(out[k]);
+  if (Array.isArray(out.ids)) out.ids = out.ids.map(resolve);
+  if (Array.isArray(out.elements)) out.elements = out.elements.map((el) => (el && typeof el === "object" && "parent" in el ? { ...el, parent: resolve((el as { parent: unknown }).parent) } : el));
+  return out;
 }
 
 function fail(code: string, message: string, hint: string): ToolOutcome {
@@ -100,6 +119,7 @@ const HANDLERS: Record<string, Handler> = {
     };
     const tree = doc.getTree();
     return {
+      root: doc.root,
       viewBox: root.attrs.viewBox ?? null,
       size: t.editor.intrinsicSize(),
       selection: t.editor.getSelection(),
@@ -246,6 +266,16 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   remove_animations: (t, input: { ids: NodeId[]; preset?: string }) => ({ removed: t.doc.removeAnimations(input.ids, input.preset) }),
+
+  set_canvas: (t, input: { width: number; height: number }) => {
+    // The page is the viewBox from 0,0; width and height give it the same size in pixels.
+    const w = Math.round(input.width);
+    const h = Math.round(input.height);
+    if (!(w >= 16 && h >= 16 && w <= 10000 && h <= 10000)) throw new ToolError("INVALID_INPUT", `The canvas must be 16 to 10000 units on each side, got ${w} x ${h}.`, "Example: { width: 1200, height: 800 }.");
+    t.doc.set(t.doc.root, { width: w, height: h, viewBox: `0 0 ${w} ${h}` });
+    const bg = t.doc.getBackground();
+    return { width: w, height: h, viewBox: `0 0 ${w} ${h}`, ...(bg ? { background: bg.color } : {}) };
+  },
 
   set_background: (t, input: { color: string | null }) => ({ background: t.doc.setBackground(input.color) ? input.color : null }),
 

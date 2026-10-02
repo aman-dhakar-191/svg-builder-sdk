@@ -7,7 +7,7 @@ export interface ToolDefinition {
   input_schema: Schema & { type: "object" };
 }
 
-const id: Schema = { type: "string", description: 'Element ID, e.g. "n_12" (from get_document, query_elements or an earlier result).' };
+const id: Schema = { type: "string", description: 'Element ID, e.g. "n_12" (from get_document, query_elements or an earlier result), or the id attribute you gave the element.' };
 const ids = (min = 1): Schema => ({ type: "array", items: id, minItems: min, maxItems: 500 });
 const attrValue: Schema = { anyOf: [{ type: "string" }, { type: "number" }] };
 const vec2: Schema = { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 };
@@ -237,6 +237,12 @@ export const TOOLS: ToolDefinition[] = [
       required: ["ids"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "set_canvas",
+    description:
+      "Sets the page size (viewBox 0 0 width height, and the same width and height). Existing shapes keep their coordinates. Do this first when the request needs room, e.g. several versions of a logo side by side (an artboard each), or a wide banner.",
+    input_schema: { type: "object", properties: { width: { type: "number" }, height: { type: "number" } }, required: ["width", "height"], additionalProperties: false },
   },
   {
     name: "set_background",
