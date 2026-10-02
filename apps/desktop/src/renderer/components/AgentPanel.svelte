@@ -163,13 +163,13 @@
   <form id="chat-form" class="composer" onsubmit={(e) => { e.preventDefault(); void agent.send(); }}>
     <div class="box" class:busy={agent.running}>
       <textarea id="chat-input" bind:this={input} bind:value={agent.draft} rows="2" disabled={agent.running} onkeydown={onKeydown}
-        placeholder={agent.running ? "The agent is working. Press Stop on the canvas to cancel." : "Describe a change, e.g. “draw a simple house with a red door”"}></textarea>
+        placeholder={agent.running ? "The agent is working. Stop keeps what it drew so far; Stop on the canvas discards it." : "Describe a change, e.g. “draw a simple house with a red door”"}></textarea>
       <div class="row">
         {#if agent.settings?.vision}<span class="chip on" title="The agent looks at snapshots of its work"><Eye size={13} />Checks its work</span>{/if}
         {#if selectionLabel}<span class="chip" title="The agent knows what is selected" in:fade={{ duration: 120 }}><Crosshair size={13} />{selectionLabel}</span>{/if}
         <span class="spacer"></span>
         {#if agent.running}
-          <button type="button" class="send stop" id="chat-stop" aria-label="Stop" title="Stop and discard this turn" onclick={() => session.stopLock(false)}><Square size={13} /></button>
+          <button type="button" class="send stop" id="chat-stop" aria-label="Stop" title="Stop and keep what the agent drew so far (Ctrl+Z removes it; Stop on the canvas discards it)" onclick={() => session.stopLock(true)}><Square size={13} /></button>
         {:else}
           <button type="submit" class="send" id="chat-send" aria-label="Send" title="Send (Enter)" disabled={!agent.draft.trim()}><ArrowUp size={16} /></button>
         {/if}

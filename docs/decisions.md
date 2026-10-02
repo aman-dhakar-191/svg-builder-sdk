@@ -272,3 +272,13 @@ Measured with the SDK (paths, one attribute each changed, Node 22): opening and 
 | Command | `keyframes` replaces one property's whole track (keys [] removes it); the SDK builds single-key edits (`setKeyframe`, `removeKeyframe`, `moveKeyframe`) and `keyValueAt` on it. Colours step at keys in `keyValueAt` (SMIL interpolates them on screen). | One simple, well-tested write path. |
 | Editing at a time | With the timeline open the canvas holds the drawing at the playhead (`Playback.hold`), handles on the animated pose. Record mode turns canvas transform gestures and Design-panel opacity / fill / stroke into keys at the playhead; a track's first recorded key also adds a key at 0 s with the resting value, so the shape moves from where it was. Moves are converted into the element's own coordinates (inside its transform). | After Effects' auto-key, without its stopwatch step. Resizing records a scale about the centre, not about the dragged handle's opposite edge (not yet). The inspector's X / Y show the resting geometry, not the pose at the playhead. |
 | Not yet | Per-key easing, curve editor, copy/paste of keys, keyframing path shapes (`d`), motion along a path, Lottie / CSS / video export. | |
+
+## Agent: commit to a concept (after a NEURA logo test)
+
+A real turn ("NEURA" logo: primary, symbol, mono, app icon) restarted from scratch seven times, each snapshot leading to a new concept, until the user pressed Stop, which then discarded it all.
+
+| Topic | Decision | Why / revisit when |
+|---|---|---|
+| Prompt | The model writes its concept first and commits to it; after a snapshot it refines the part that is wrong, restarting at most once per turn and only when the drawing is broken. It sizes the page first when the request needs room, draws a mark once in `<defs>` and places versions with `<use>` (mono via `currentColor`), and picks wordmark fonts and spacing deliberately. | The old rule ("deleting and redrawing a part is fine") read as licence to restart; four versions on a 400 x 240 page could never fit, and drawing each version separately made them drift apart. |
+| Tools | `set_canvas` (page size: viewBox 0 0 w h and the same width / height); `get_document` names the root; element references (`id`, `ids`, `parent`) may be the id attribute the model gave an element ("logo" or "#logo") when exactly one element has it. | Models name elements by their own ids; the call failed on "logo_defs". |
+| Stop | The chat's Stop now keeps what the agent drew (one Ctrl+Z removes it); the canvas banner still has Stop (discard) and Stop & keep. | Losing minutes of work to the obvious button was the worse failure. |
